@@ -26,7 +26,7 @@ app_ui = ui.page_fluid(
                     )
                 ), 
                 ui.page_navbar(
-                    ui.nav_panel("1page",
+                    ui.nav_panel("공정 over view",
                         ui.row(
                             ui.column(4,
                                 ui.input_action_button( "start", "▶ 시작", class_="btn-success"
@@ -59,7 +59,7 @@ app_ui = ui.page_fluid(
                             )    
                         )
                     ),
-                    ui.nav_panel("2page",
+                    ui.nav_panel("공정 이상 탐지",
                         ui.layout_columns(
                             ui.card(
                                 ui.card_header("[A]"),
@@ -77,7 +77,7 @@ app_ui = ui.page_fluid(
                             )
                         )
                     ),
-                    ui.nav_panel("3page",
+                    ui.nav_panel("품질 이상 탐지지",
                         ui.layout_columns(
                             ui.card(
                                 ui.card_header("[A]"),
