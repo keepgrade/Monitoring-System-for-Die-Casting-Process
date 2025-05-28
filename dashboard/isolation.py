@@ -26,18 +26,16 @@ model = IsolationForest(contamination=0.05, random_state=42)
 model.fit(X_scaled)
 
 # 예측 결과: -1은 이상치, 1은 정상
+
+# 예측을 X_scaled로 하면 학습이랑 예측을 같은 데이터로?
+# 수정 필요!!!!!!!!!!!!!!!!!!!!!!!!
 df["is_anomaly"] = pd.Series(model.predict(X_scaled), index=df.index).map({1: 0, -1: 1})
 
 
 # decision_function은 0을 기준으로 이상 여부를 나눔
 scores = model.decision_function(X_scaled)
 
-# 실제 threshold는 contamination 기준으로 자동 설정됨
-threshold = np.percentile(scores, 100 * model.contamination)
-print(f"실제 내부 임계값 (threshold): {threshold}")
 
-custom_threshold = -1.189086143940868e-8  # 예: 더 민감하게 이상 감지
-df['is_anomaly_custom'] = (model.decision_function(X_scaled) < custom_threshold).astype(int)
 
 # shap로 이상원인 분석
 import shap

@@ -38,13 +38,12 @@ preprocess = ColumnTransformer([
 
 from sklearn.ensemble import GradientBoostingClassifier
 full_pipe = Pipeline([("preprocess", preprocess),("classifier", GradientBoostingClassifier())])
-full_pipe_xgb = Pipeline([
-    ("preprocess", preprocess),
-    ("classifier", XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42))
-])
+# full_pipe_xgb = Pipeline([
+#     ("preprocess", preprocess),
+#     ("classifier", XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42))
+# ])
 
-GradientBoosting_param = {'classifier__learning_rate': np.arange(0.1, 0.3, 0.05)}
-
+# GradientBoosting_param = {'classifier__learning_rate': np.arange(0.1, 0.3, 0.05)}
 XGB_param = {
     'classifier__learning_rate': np.arange(0.1,0.4,0.05),
     'classifier__max_depth': [3, 4, 5],  # 추가로 추천
@@ -52,11 +51,11 @@ XGB_param = {
 }
 
 from sklearn.model_selection import GridSearchCV
-GradientBoosting_search = GridSearchCV(
-    estimator = full_pipe,
-    param_grid = GradientBoosting_param,
-    cv = 5,
-    scoring = 'f1_macro')
+# GradientBoosting_search = GridSearchCV(
+#     estimator = full_pipe,
+#     param_grid = GradientBoosting_param,
+#     cv = 5,
+#     scoring = 'f1_macro')
 XGB_search = GridSearchCV(
     estimator=full_pipe,
     param_grid=XGB_param,
@@ -66,13 +65,13 @@ XGB_search = GridSearchCV(
     verbose=1
 )
 
-model = GradientBoosting_search.fit(train_X, train_y)
+# model = GradientBoosting_search.fit(train_X, train_y)
+model_xgb = XGB_search.fit(train_X,train_y)
 
-print('best 파라미터 조합 :', GradientBoosting_search.best_params_)
 
-importances = GradientBoosting_search.best_estimator_.named_steps["classifier"].feature_importances_
+importances = XGB_search.best_estimator_.named_steps["classifier"].feature_importances_
 # 피처 이름과 함께 DataFrame으로 정리
-feature_names = GradientBoosting_search.best_estimator_ \
+feature_names = XGB_search.best_estimator_ \
     .named_steps["preprocess"] \
     .get_feature_names_out()
     
@@ -82,34 +81,25 @@ feature_importance_df = pd.DataFrame({
     'importance': importances
 }).sort_values(by='importance', ascending=False)
 feature_importance_df.head(10)
-# 시각화
-plt.figure(figsize=(10, 6))
-sns.barplot(x='importance', y='feature', data=feature_importance_df)
-plt.title("Feature Importance (Isolation Forest)")
-plt.xlabel("Importance Score")
-plt.ylabel("Feature")
-plt.tight_layout()
-plt.show()
 
 
 
-model_xgb = XGB_search.fit(train_X,train_y)
 
-print('best 파라미터 조합 :', GradientBoosting_search.best_params_)
-print('교차검증 f1 score :', GradientBoosting_search.best_score_)
+# print('best 파라미터 조합 :', GradientBoosting_search.best_params_)
+# print('교차검증 f1 score :', GradientBoosting_search.best_score_)
 
 
 print('best 파라미터 조합 :', XGB_search.best_params_)
 print('교차검증 f1 score :', XGB_search.best_score_)
 
 from sklearn.metrics import f1_score
-gb_pred = GradientBoosting_search.predict(test_X)
+# gb_pred = GradientBoosting_search.predict(test_X)
 xgb_pred = XGB_search.predict(test_X)
-print('테스트 f1 score :', f1_score(test_y, gb_pred))
+# print('테스트 f1 score :', f1_score(test_y, gb_pred))
 print('테스트 f1 score :', f1_score(test_y, xgb_pred))
 
 import pickle
-pickle.dump(model, open("model.pkl", "wb"))
+pickle.dump(model_xgb, open("model.pkl", "wb"))
 
 model_loaded = pickle.load(open("model.pkl", "rb"))
 # 예측 확인
