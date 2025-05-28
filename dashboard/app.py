@@ -4,31 +4,109 @@
 from shiny import App, ui, render, reactive
 import pandas as pd
 import matplotlib.pyplot as plt
-from shared import RealTimeStreamer, selected_cols , static_df, streaming_df  # 필요 시 추가
+from shared import RealTimeStreamer, selected_cols , static_df, streaming_df # 필요 시 추가
+import numpy as np
+from datetime import datetime
+import matplotlib as mpl
+import joblib
+plt.rcParams['font.family'] = 'Malgun Gothic'  # 윈도우
+mpl.rcParams['axes.unicode_minus'] = False  # 마이너스 부호 깨짐 방지
 
+combined_df = reactive.Value(static_df.copy())
 
 # ================================
 # 🖼️ 2. UI 정의
 # ================================
+
 app_ui = ui.page_fluid(
-    ui.tags.head(
-        ui.tags.link(rel="stylesheet", href="style.css")
-    ),
-    ui.h2("🚀 실시간 스트리밍 대시보드"),
-    ui.row(
-        ui.column(4,
-            ui.input_action_button("start", "▶ 시작", class_="btn-success"),
-            ui.input_action_button("pause", "⏸ 일시정지", class_="btn-warning"),
-            ui.input_action_button("reset", "🔄 리셋", class_="btn-secondary"),
-            ui.output_ui("stream_status"),
-            ui.output_ui("progress_bar")
-        ),
-        ui.column(8,
-            ui.output_plot("stream_plot", height="400px"),
-            ui.output_table("recent_data_table")
-        )
-    )
-)
+            ui.tags.head(
+                ui.tags.link(
+                    href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/journal/bootstrap.min.css",
+                    rel="stylesheet"
+                    )
+                ), 
+                ui.page_navbar(
+                    ui.nav_panel("1page",
+                        ui.row(
+                            ui.column(4,
+                                ui.input_action_button( "start", "▶ 시작", class_="btn-success"
+                                ),
+                                ui.input_action_button("pause", "⏸ 일시정지", class_="btn-warning"),
+                                ui.input_action_button("reset", "🔄 리셋", class_="btn-secondary"),
+                                ui.output_ui("stream_status"),
+                                ui.output_ui("progress_bar")
+                            ),
+                            ui.layout_columns(
+                                ui.card(
+                                    ui.card_header("[A]실시간 대시보드"),
+                                    ui.output_plot("stream_plot", height="400px"),
+                                    ui.div(
+                                        ui.output_table("recent_data_table"),
+                                        style="max-height: 200px; overflow-y: auto;"
+                                    )
+                                ),
+                                ui.card(
+                                    ui.card_header("[B]")
+                                ),
+                            ),
+                            ui.layout_columns(
+                                ui.card(
+                                    ui.card_header("[C]")
+                                ),
+                                ui.card(
+                                    ui.card_header("[D]")
+                                ),
+                            )    
+                        )
+                    ),
+                    ui.nav_panel("2page",
+                        ui.layout_columns(
+                            ui.card(
+                                ui.card_header("[A]"),
+                            ),
+                            ui.card(
+                                ui.card_header("[B]"),
+                            )
+                        ),
+                        ui.layout_columns(
+                            ui.card(
+                                ui.card_header("[C]"),
+                            ),
+                            ui.card(
+                                ui.card_header("[D]"),
+                            )
+                        )
+                    ),
+                    ui.nav_panel("3page",
+                        ui.layout_columns(
+                            ui.card(
+                                ui.card_header("[A]"),
+                                ui.input_select(
+                                    "grouping_unit", 
+                                    "📅 기간 단위 선택", 
+                                    choices=["일", "주", "월"], 
+                                    selected="일"
+                                ),
+                                ui.output_plot("defect_rate_plot", height="300px"),
+                                
+                            ),
+                            ui.card(
+                                ui.card_header("[B]"),
+                            )
+                        ),
+                        ui.layout_columns(
+                            ui.card(
+                                ui.card_header("[C]"),
+                            ),
+                            ui.card(
+                                ui.card_header("[D]"),
+                            )
+                        )
+                    ),
+                    title = "🚀실시간 스트리밍 대시보드"
+                )
+            )
+
 
 # ================================
 # ⚙️ 3. 서버 로직
@@ -127,6 +205,57 @@ def server(input, output, session):
             return pd.DataFrame({"에러": [str(e)]})
 
 
+    
+    @output
+    @render.plot
+    def defect_rate_plot():
+        try:
+            unit = input.grouping_unit()  # "일", "주", "월"
+
+            #df_vis = static_df.copy()
+            df_vis = streamer.get().get_total_data()
+
+            # 문자열 날짜를 datetime으로 변환
+            df_vis['datetime'] = pd.to_datetime(
+                df_vis['date'] + " " + df_vis['time'], 
+                format="%H:%M:%S %Y-%m-%d",
+                errors="coerce"
+            )
+
+            # 그룹핑 기준 추가
+            if unit == "일":
+                df_vis['group'] = df_vis['datetime'].dt.strftime('%Y-%m-%d')
+            elif unit == "주":
+                df_vis['group'] = df_vis['datetime'].dt.to_period('W').astype(str)
+            elif unit == "월":
+                df_vis['group'] = df_vis['datetime'].dt.to_period('M').astype(str)
+
+            # 각 그룹별 불량률 계산
+            group_result = df_vis.groupby(['group', 'passorfail']).size().unstack(fill_value=0)
+    
+            # 가장 최근 group 선택 (예: 마지막 날짜)
+            latest_group = group_result.index[-1]
+            counts = group_result.loc[latest_group]
+    
+            # 시각화
+            fig, ax = plt.subplots()
+            labels = ['양품', '불량']
+            sizes = [counts.get(0, 0), counts.get(1, 0)]
+            colors = ['#4CAF50', '#F44336']
+    
+            wedges, _, _ = ax.pie(
+                sizes, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90
+            )
+            ax.axis('equal')
+            ax.set_title(f"{latest_group} ({unit} 기준) 불량률")
+            ax.legend(wedges, labels, title="예측 결과", loc="upper right", bbox_to_anchor=(1.1, 1))
+    
+            return fig
+    
+        except Exception as e:
+            fig, ax = plt.subplots()
+            ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
+            return fig
 # ================================
 # 🚀 4. 앱 실행
 # ================================
