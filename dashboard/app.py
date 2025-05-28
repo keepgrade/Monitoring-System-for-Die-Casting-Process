@@ -2,50 +2,13 @@
 # 📦 1. Import
 # ================================
 from shiny import App, ui, render, reactive
-from shinyswatch import theme
 import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
-from datetime import datetime
-from shared import df, app_dir
+from shared import RealTimeStreamer, selected_cols , static_df, streaming_df  # 필요 시 추가
 
-# 사용할 센서 컬럼 선택
-selected_cols = ['molten_temp', 'cast_pressure', 'high_section_speed']
-df_selected = df[selected_cols].reset_index(drop=True)
 
 # ================================
-# 🔧 2. 실시간 스트리밍 데이터 클래스
-# ================================
-class RealTimeStreamer:
-    def __init__(self):
-        self.full_data = df_selected.copy()
-        self.current_index = 0
-
-    def get_next_batch(self, batch_size=1):
-        if self.current_index >= len(self.full_data):
-            return None
-        end_index = min(self.current_index + batch_size, len(self.full_data))
-        batch = self.full_data.iloc[self.current_index:end_index].copy()
-        self.current_index = end_index
-        return batch
-
-    def get_current_data(self):
-        if self.current_index == 0:
-            return pd.DataFrame()
-        return self.full_data.iloc[:self.current_index].copy()
-
-    def reset_stream(self):
-        self.current_index = 0
-
-    def get_stream_info(self):
-        return {
-            'total_rows': len(self.full_data),
-            'current_index': self.current_index,
-            'progress': (self.current_index / len(self.full_data)) * 100 if len(self.full_data) > 0 else 0
-        }
-
-# ================================
-# 🖼️ 3. UI 정의
+# 🖼️ 2. UI 정의
 # ================================
 app_ui = ui.page_fluid(
     ui.h2("🚀 실시간 스트리밍 대시보드"),
@@ -65,7 +28,7 @@ app_ui = ui.page_fluid(
 )
 
 # ================================
-# ⚙️ 4. 서버 로직
+# ⚙️ 3. 서버 로직
 # ================================
 def server(input, output, session):
     streamer = reactive.Value(RealTimeStreamer())
@@ -94,7 +57,7 @@ def server(input, output, session):
         try:
             if not is_streaming.get():
                 return
-            reactive.invalidate_later(1)
+            reactive.invalidate_later(1)  # 1초 간격으로 새 데이터 불러오기
             s = streamer.get()
             next_batch = s.get_next_batch(1)
             if next_batch is not None:
@@ -145,6 +108,8 @@ def server(input, output, session):
         except Exception as e:
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
+            ax.set_xticks([])
+            ax.set_yticks([])
             return fig
 
     @output
@@ -158,7 +123,8 @@ def server(input, output, session):
         except Exception as e:
             return pd.DataFrame({"에러": [str(e)]})
 
+
 # ================================
-# 🚀 5. 앱 실행
+# 🚀 4. 앱 실행
 # ================================
 app = App(app_ui, server)
