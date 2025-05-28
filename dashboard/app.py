@@ -11,6 +11,9 @@ from shared import RealTimeStreamer, selected_cols , static_df, streaming_df  # 
 # 🖼️ 2. UI 정의
 # ================================
 app_ui = ui.page_fluid(
+    ui.tags.head(
+        ui.tags.link(rel="stylesheet", href="style.css")
+    ),
     ui.h2("🚀 실시간 스트리밍 대시보드"),
     ui.row(
         ui.column(4,
