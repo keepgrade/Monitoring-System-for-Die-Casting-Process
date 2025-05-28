@@ -1,0 +1,12 @@
+{
+    "https://api.shinyapps.io": {
+        "server_url": "https://api.shinyapps.io",
+        "filename": "C:\\Users\\User\\Desktop\\Monitoring-System-for-Die-Casting-Process\\dashboard",
+        "app_url": "https://lsbig10.shinyapps.io/msdcp-51/",
+        "app_id": 14836943,
+        "app_guid": null,
+        "title": "MSDCP-5",
+        "app_mode": "python-shiny",
+        "app_store_version": 1
+    }
+}
