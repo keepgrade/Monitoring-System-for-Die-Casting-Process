@@ -2,7 +2,7 @@ import seaborn as sns
 from faicons import icon_svg
 
 # Import data from shared.py
-from shared import app_dir, df
+from shared import app_dir, df, font_prop
 
 from shiny import App, reactive, render, ui
 from shinyswatch import theme
