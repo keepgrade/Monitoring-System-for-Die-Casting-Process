@@ -74,3 +74,7 @@ shap_df = pd.DataFrame({
 
 print("이 이상치에 가장 기여한 변수:")
 print(shap_df.head(5))
+
+
+
+
