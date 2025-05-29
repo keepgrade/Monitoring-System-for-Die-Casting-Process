@@ -4,7 +4,7 @@
 from shiny import App, ui, render, reactive
 import pandas as pd
 import matplotlib.pyplot as plt
-from shared import RealTimeStreamer, selected_cols, static_df, streaming_df
+from shared import RealTimeStreamer, sensor_labels, static_df, streaming_df
 import numpy as np
 from datetime import datetime, timedelta
 import matplotlib as mpl
@@ -56,17 +56,11 @@ app_ui = ui.page_fluid(
                 ui.card(
                     ui.card_header("📊 [A] 실시간 그래프"),
                     ui.div(
-                        ui.input_select(
-                            "time_filter", 
-                            "시간 필터", 
-                            choices=["최근 1시간", "최근 3시간", "최근 24시간"], 
-                            selected="최근 1시간"
-                        ),
                         ui.input_checkbox_group(
                             "sensor_filter",
                             "센서 선택",
-                            choices=selected_cols,
-                            selected=selected_cols
+                            choices=sensor_labels,
+                            selected=sensor_labels
                         ),
                         class_="mb-3"
                     ),
@@ -209,59 +203,64 @@ def server(input, output, session):
         logs.set([])
         prediction_logs.set([])
 
+    # 스트리밍 실패 카운터 (최대 5회 허용)
+    fail_count = reactive.Value(0)
+
     @reactive.effect
     def stream_data():
+        reactive.invalidate_later(1)  # 항상 재호출 예약
+
         if not is_streaming.get():
             return
-        reactive.invalidate_later(2)  # 2초 간격
-        
+
         try:
             s = streamer.get()
             next_batch = s.get_next_batch(1)
-            if next_batch is not None:
+
+            # 데이터가 비어있지 않으면 정상 처리
+            if next_batch is not None and not next_batch.empty:
+                fail_count.set(0)
                 current_data.set(s.get_current_data())
-                
-                # 로그 추가
+
                 new_logs = logs.get()
                 timestamp = datetime.now().strftime("%H:%M:%S")
-                
-                # 센서 값 로그
-                if len(next_batch) > 0:
-                    row = next_batch.iloc[-1]
-                    if hasattr(row, 'molten_temp'):
-                        new_logs.append(f"[{timestamp}] 용탕온도: {row['molten_temp']:.1f}°C")
-                    if hasattr(row, 'cast_pressure'):
-                        new_logs.append(f"[{timestamp}] 주조압력: {row['cast_pressure']:.1f}bar")
-                
-                # 최근 50개만 유지
-                if len(new_logs) > 50:
-                    new_logs = new_logs[-50:]
+                row = next_batch.iloc[-1]
+
+                for sensor, (label, unit) in sensor_labels.items():
+                    if sensor in row and pd.notna(row[sensor]):
+                        new_logs.append(f"[{timestamp}] {label}: {row[sensor]:.1f}{unit}")
+
+                if len(new_logs) > 1000000:
+                    new_logs = new_logs[-100000:]
+
                 logs.set(new_logs)
-                
-                # 예측 로그 추가
+
+                # 예측 로그
                 pred_logs = prediction_logs.get()
-                if hasattr(row, 'passorfail'):
-                    prob = np.random.uniform(0, 1)  # 실제로는 모델 예측값
+                if 'passorfail' in row:
+                    prob = np.random.uniform(0, 1)
                     result = "불량" if prob > 0.5 else "양품"
                     pred_logs.append(f"[{timestamp}] 확률: {prob:.3f}, 판정: {result}")
-                
-                if len(pred_logs) > 20:
-                    pred_logs = pred_logs[-20:]
-                prediction_logs.set(pred_logs)
-                
+                    if len(pred_logs) > 20:
+                        pred_logs = pred_logs[-20:]
+                    prediction_logs.set(pred_logs)
+
             else:
-                is_streaming.set(False)
+                # fail_count 누적, 5회 이상이면 종료
+                fc = fail_count.get() + 1
+                fail_count.set(fc)
+                if fc >= 100:
+                    print("[⛔️ 종료] 데이터 스트림이 5회 이상 비었습니다.")
+                    is_streaming.set(False)
+
         except Exception as e:
-            print(f"스트리밍 오류: {e}")
-            is_streaming.set(False)
+            print(f"[⚠️ 스트리밍 예외] {e}")
+            # 스트리밍을 끄지 말고 예외만 로깅
 
     # ================================
     # TAB 1: 공정 모니터링 Overview
     # ================================
 
-    # ================================
-    # TAP 1 [A] - 진행률 표시
-    # ================================
     # ▶ 데이터 스트리밍 진행률을 퍼센트로 표시합니다.
     @output
     @render.ui
@@ -273,17 +272,20 @@ def server(input, output, session):
     @render.ui
     def progress_bar():
         try:
-            info = streamer.get().get_stream_info()
-            progress = info['progress']
+            progress = streamer.get().get_stream_info()
             return ui.div(f"진행률: {progress:.1f}%", class_="text-muted small")
         except:
             return ui.div("진행률: 0%", class_="text-muted small")
-
+    # ================================
+    # TAP 1 [A] - 스트리밍 표시 
+    # ================================
     @output
     @render.plot
     def real_time_graph():
         try:
             df = current_data.get()
+
+            # 1. 데이터가 아예 없을 경우
             if df.empty:
                 fig, ax = plt.subplots(figsize=(12, 6))
                 ax.text(0.5, 0.5, "스트리밍을 시작하세요", ha='center', va='center', fontsize=16)
@@ -291,43 +293,35 @@ def server(input, output, session):
                 ax.set_ylim(0, 1)
                 return fig
 
-            # 시간 필터링
-            time_filter = input.time_filter()
-            if "1시간" in time_filter:
-                df = df.tail(60)
-            elif "3시간" in time_filter:
-                df = df.tail(180)
-            elif "24시간" in time_filter:
-                df = df.tail(1440)
+            # 2. 사용자가 선택한 센서
+            selected_sensors = input.sensor_filter() or []
 
-            # 선택된 센서만 표시
-            selected_sensors = input.sensor_filter()
-            
+            # 3. 그래프 준비
             fig, ax = plt.subplots(figsize=(12, 6))
-            
+
             for col in selected_sensors:
                 if col in df.columns:
-                    # 이동평균 적용
-                    values = df[col].rolling(window=min(10, len(df)), center=True).mean()
-                    ax.plot(range(len(values)), values, label=col, linewidth=2)
-                    
-                    # 이상치 표시 (3σ 이상)
-                    mean_val = values.mean()
-                    std_val = values.std()
-                    outliers = values[(values > mean_val + 3*std_val) | (values < mean_val - 3*std_val)]
-                    if not outliers.empty:
-                        ax.scatter(outliers.index, outliers.values, color='red', s=50, alpha=0.7)
+                    col_data = df[col]
+
+                    # 숫자형이고 NaN이 아닌 데이터가 있는 경우만 그림
+                    if pd.api.types.is_numeric_dtype(col_data) and not col_data.dropna().empty:
+                        ax.plot(range(len(col_data)), col_data, label=col, linewidth=2)
 
             ax.legend()
-            ax.set_title("실시간 센서 데이터 (이동평균 적용)")
+            ax.set_title("실시간 센서 데이터")
             ax.grid(True, alpha=0.3)
             ax.set_xlabel("시간 (인덱스)")
-            
+
             return fig
+
         except Exception as e:
-            fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"오류: {str(e)}", ha='center', va='center')
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', va='center', fontsize=12)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
             return fig
+
+
 
     @output
     @render.ui
@@ -341,7 +335,7 @@ def server(input, output, session):
             prev = df.iloc[-2] if len(df) > 1 else latest
 
             cards = []
-            for col in selected_cols:
+            for col in sensor_labels:
                 if col in df.columns:
                     current_val = latest[col]
                     prev_val = prev[col] if prev is not None else current_val
@@ -490,7 +484,7 @@ def server(input, output, session):
                 return fig
 
             # SHAP 기준 변수별 영향도 집계 (시뮬레이션)
-            variables = selected_cols
+            variables = sensor_labels
             counts = {}
             
             for var in variables:
@@ -558,7 +552,7 @@ def server(input, output, session):
                     risk_counts["주의"] += 1
                 
                 # 주요 원인 (시뮬레이션)
-                main_cause = np.random.choice(selected_cols)
+                main_cause = np.random.choice(sensor_labels)
                 time_str = datetime.now().strftime('%H:%M:%S')
                 
                 notifications.append(
