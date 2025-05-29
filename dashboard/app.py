@@ -1,6 +1,9 @@
 # ================================
 # 📦 1. Import
 # ================================
+from io import BytesIO
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 from shiny import App, ui, render, reactive
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -14,6 +17,8 @@ import warnings
 from plotly.graph_objs import Figure, Scatter
 import plotly.graph_objs as go
 from shinywidgets import render_widget
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 warnings.filterwarnings('ignore')
 
@@ -54,20 +59,19 @@ app_ui = ui.page_fluid(
         # TAB 1: 공정 모니터링 overview
         # ================================
         ui.nav_panel("공정 모니터링 Overview",
-            ui.row(
-                ui.column(12,
-                    ui.div(
-                        ui.input_action_button("start", "▶ 시작", class_="btn-success me-2"),
-                        ui.input_action_button("pause", "⏸ 일시정지", class_="btn-warning me-2"),
-                        ui.input_action_button("reset", "🔄 리셋", class_="btn-secondary me-2"),
-                        ui.output_ui("stream_status"),
-                        ui.output_ui("progress_bar"),
-                    )
-                )
-            ),
             ui.layout_columns(
                 # [A] 실시간 그래프
                 ui.card(
+                    ui.row(
+                        ui.column(12,
+                            ui.div(
+                                ui.input_action_button("start", "▶ 시작", class_="btn-success me-2"),
+                                ui.input_action_button("pause", "⏸ 일시정지", class_="btn-warning me-2"),
+                                ui.input_action_button("reset", "🔄 리셋", class_="btn-secondary me-2"),
+                                ui.output_ui("stream_status"),
+                            )
+                        )
+                    ),
                     ui.card_header("📊 [A] 실시간 그래프"),
                     ui.output_plot("stream_plot", height="400px")
                 ),
@@ -83,7 +87,9 @@ app_ui = ui.page_fluid(
                 ui.card(
                     ui.card_header("📝 [C] 실시간 로그"),
                     ui.div(
-                        ui.output_table("recent_data_table")
+                        ui.h5("📋 실시간 로그 (최근 10건)"),
+                        ui.output_table("recent_data_table"),
+                        ui.output_ui("download_controls")  # 형식 선택 + 다운로드 버튼
                     )
                 ),
                 # [D] 이상 불량 알림 탭
@@ -220,7 +226,7 @@ def server(input, output, session):
         try:
             if not is_streaming.get():
                 return
-            reactive.invalidate_later(1)
+            reactive.invalidate_later(2)
             s = streamer.get()
             next_batch = s.get_next_batch(1)
             if next_batch is not None:
@@ -246,9 +252,9 @@ def server(input, output, session):
     def stream_status():
         try:
             status = "🟢 스트리밍 중" if is_streaming.get() else "🔴 정지됨"
-            return ui.div(status)
+            return status
         except Exception as e:
-            return ui.div(f"에러: {str(e)}")
+            return f"에러: {str(e)}"
         
         
     # ================================
@@ -258,46 +264,63 @@ def server(input, output, session):
     @render.plot
     def stream_plot():
         try:
-            df = current_data.get().tail(6)
-            print(df)
-            # 데이터가 없을 경우 메시지 출력
+            df = current_data.get().tail(10)
+
             if df.empty:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "스트리밍을 시작하세요", ha='center', va='center')
+                ax.text(0.5, 0.5, "📡 스트리밍을 시작하세요", ha='center', va='center', fontsize=14)
                 ax.set_xticks([])
                 ax.set_yticks([])
                 return fig
 
-            # ✅ registration_time 파싱 (없을 경우 대비)
             if "registration_time" not in df.columns:
                 raise ValueError("'registration_time' 컬럼이 없습니다.")
             df["registration_time"] = pd.to_datetime(df["registration_time"])
 
-            # ✅ 그래프 그리기
-            fig, ax = plt.subplots(figsize=(10, 4))
-            for col in selected_cols:
-                if col in df.columns:
-                    ax.plot(df["registration_time"], df[col].values, label=col)
-                else:
-                    print(f"⚠️ 컬럼 없음: {col}")
-            
-            ax.set_title("실시간 센서 데이터")
-            ax.set_xlabel("시간")
-            ax.legend()
-            ax.grid(True)
+            cols_to_plot = [col for col in selected_cols if col in df.columns][:4]
+            if not cols_to_plot:
+                raise ValueError("선택된 컬럼이 없습니다.")
 
-            # ✅ 시간 x축 포맷 회전
+            # ✅ 컬러 팔레트 (colorblind friendly)
+            colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+
+            fig, axs = plt.subplots(nrows=len(cols_to_plot), ncols=1,
+                                    figsize=(10, 3.5 * len(cols_to_plot)), sharex=True)
+
+            if len(cols_to_plot) == 1:
+                axs = [axs]
+
+            for i, col in enumerate(cols_to_plot):
+                ax = axs[i]
+                ax.plot(df["registration_time"], df[col],
+                        label=col,
+                        color=colors[i % len(colors)],
+                        linewidth=2,
+                        marker='o', markersize=5)
+
+                ax.set_ylabel(col, fontsize=11)
+                ax.legend(loc='upper right', fontsize=10)
+                ax.grid(True, linestyle='--', alpha=0.5)
+                ax.tick_params(axis='both', labelsize=9)
+
+            axs[-1].set_xlabel("시간", fontsize=11)
+            axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             fig.autofmt_xdate()
+
+            fig.suptitle("🔧 실시간 센서 스트리밍", fontsize=16, fontweight='bold')
+            fig.tight_layout(rect=[0, 0.03, 1, 0.95])  # suptitle 공간 확보
 
             return fig
 
         except Exception as e:
             print("⛔ stream_plot 오류:", e)
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
+            ax.text(0.5, 0.5, f"❌ 에러 발생:\n{str(e)}", ha='center', va='center',
+                    fontsize=12, color='red')
             ax.set_xticks([])
             ax.set_yticks([])
             return fig
+
     # ================================
     # TAP 1 [B] - 실시간 값 
     # ================================
@@ -312,42 +335,62 @@ def server(input, output, session):
             latest = df.iloc[-1] if len(df) > 0 else None
             prev = df.iloc[-2] if len(df) > 1 else latest
 
+            # ✅ 그래프 색상과 매칭
+            sensor_colors = {
+                'molten_temp': '#1f77b4',
+                'cast_pressure': '#ff7f0e',
+                'upper_mold_temp1': '#2ca02c',
+                'lower_mold_temp1': '#d62728',
+                # 추가 센서 색상도 여기에
+            }
+
             cards = []
             for col in sensor_labels:
                 if col in df.columns:
                     current_val = latest[col]
                     prev_val = prev[col] if prev is not None else current_val
-                    
-                    # 증감 화살표
-                    if current_val > prev_val:
+                    diff = current_val - prev_val
+                    percent_change = (diff / prev_val * 100) if prev_val != 0 else 0
+
+                    # 증감 화살표 및 색상
+                    if diff > 0:
                         arrow = "⬆️"
                         color_class = "text-success"
-                    elif current_val < prev_val:
+                    elif diff < 0:
                         arrow = "⬇️"
                         color_class = "text-danger"
                     else:
                         arrow = "➡️"
                         color_class = "text-muted"
-                    
-                    # 임계값 체크 (예시)
+
+                    # 경고 테두리
                     warning_class = ""
                     if col == 'molten_temp' and current_val > 850:
-                        warning_class = "border-danger"
+                        warning_class = "border border-danger"
                     elif col == 'cast_pressure' and current_val > 200:
-                        warning_class = "border-danger"
-                    
+                        warning_class = "border border-danger"
+
+                    # 색상 적용
+                    custom_color = sensor_colors.get(col, "#000000")
+
                     cards.append(
                         ui.div(
                             ui.h6(col.replace('_', ' ').title()),
-                            ui.h4(f"{current_val:.1f} {arrow}", class_=color_class),
+                            ui.h4(
+                                f"{current_val:.1f} {arrow} ({diff:+.1f}, {percent_change:+.1f}%)",
+                                class_=color_class,
+                                style=f"color: {custom_color}; font-weight: bold;"
+                            ),
                             class_=f"card p-3 mb-2 {warning_class}"
+                    
                         )
                     )
-            
-            return ui.div(*cards)
-            
+
+            return ui.div(*cards, class_="d-flex flex-column gap-2")
+
         except Exception as e:
             return ui.div(f"오류: {str(e)}", class_="text-danger")
+
     # ================================
     # TAP 1 [C] - 실시간 로그
     # ================================
@@ -361,7 +404,57 @@ def server(input, output, session):
             return df.tail(10).round(2)
         except Exception as e:
             return pd.DataFrame({"에러": [str(e)]})
-        
+    
+
+    # ================================
+    # TAP 1 [C] - 실시간 선택 다운로드 
+    # ================================
+    @output
+    @render.ui
+    def download_controls():
+        return ui.div(
+            ui.input_select("file_format", "다운로드 형식", {
+                "csv": "CSV",
+                "xlsx": "Excel",
+                "pdf": "PDF"
+            }, selected="csv"),
+            ui.download_button("download_recent_data", "📥 최근 로그 다운로드")
+        )
+    # ================================
+    # TAP 1 [C] - 실시간 선택 다운로드 로직  
+    # ================================
+    @output
+    @render.download(filename="recent_log")
+    def download_recent_data():
+        def writer():
+            df = current_data.get().tail(10).round(2)
+            file_format = input.file_format()
+
+            if df.empty:
+                return
+
+            if file_format == "csv":
+                yield df.to_csv(index=False).encode("utf-8")
+
+            elif file_format == "xlsx":
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                    df.to_excel(writer, sheet_name="RecentLog", index=False)
+                yield buffer.getvalue()
+
+            elif file_format == "pdf":
+                buffer = BytesIO()
+                with PdfPages(buffer) as pdf:
+                    fig, ax = plt.subplots(figsize=(8.5, 4))
+                    ax.axis("off")
+                    table = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
+                    table.auto_set_font_size(False)
+                    table.set_fontsize(10)
+                    table.scale(1.2, 1.2)
+                    pdf.savefig(fig, bbox_inches='tight')
+                    plt.close(fig)
+                yield buffer.getvalue()
+        return writer
     # ================================
     # TAP 1 [D] - 이상 불량 알림 
     # ================================
@@ -413,7 +506,7 @@ def server(input, output, session):
             return ui.div(f"오류: {str(e)}", class_="text-danger")
 
     # ================================
-    # TAB 2: 이상 예측
+    # TAB 2: [A] 이상 예측
     # ================================
     @output
     @render.plot
@@ -599,6 +692,7 @@ def server(input, output, session):
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center')
             return fig
+
     # ================================
     # TAB 3: 품질 분석
     # ================================
@@ -669,7 +763,8 @@ def server(input, output, session):
             return ui.input_select("selected_group", "📆 조회할 기간 선택", choices=unique_groups, selected=unique_groups[-1] if unique_groups else None)
         except:
             return ui.input_select("selected_group", "📆 조회할 기간 선택", choices=["선택 불가"], selected=None)
-# ================================
+
+    # ================================
     # TAP 3 [A] - 이상 불량 알림 
     # ================================
     @output
@@ -711,12 +806,10 @@ def server(input, output, session):
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
             return fig
-# ================================
-    # TAP 3 [B] - 이상 불량 알림 
-# ================================
-# ================================
-# TAP 3 [B] - 이상 불량 알림
-# ================================
+
+    # ================================
+    # TAP 3 [B] - 이상 불량 알림
+    # ================================
     @output
     @render.ui
     def current_prediction():
