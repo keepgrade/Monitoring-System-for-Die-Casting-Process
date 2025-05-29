@@ -4,7 +4,8 @@
 from shiny import App, ui, render, reactive
 import pandas as pd
 import matplotlib.pyplot as plt
-from shared import RealTimeStreamer, sensor_labels, static_df, streaming_df
+from shared import RealTimeStreamer, StreamAccumulator
+from shared import sensor_labels, static_df, streaming_df
 import numpy as np
 from datetime import datetime, timedelta
 import matplotlib as mpl
@@ -19,7 +20,13 @@ warnings.filterwarnings('ignore')
 plt.rcParams['font.family'] = 'Malgun Gothic'  # 윈도우
 mpl.rcParams['axes.unicode_minus'] = False  # 마이너스 부호 깨짐 방지
 
-selected_cols = ['molten_temp', 'cast_pressure', 'high_section_speed']
+selected_cols = [
+    'molten_temp',           # 용탕 온도
+    'cast_pressure',         # 주조 압력
+    'high_section_speed',    # 고속 구간 속도
+    'low_section_speed',     # 저속 구간 속도
+    'biscuit_thickness'      # 비스킷 두께
+]
 df_selected = streaming_df[selected_cols].reset_index(drop=True)
 
 
@@ -93,12 +100,12 @@ app_ui = ui.page_fluid(
         # ================================
         ui.nav_panel("이상 예측",
             ui.layout_columns(
-                # [A] 주요 변수의 이상 발생 횟수
+                # TAB 2 [A] 주요 변수의 이상 발생 횟수
                 ui.card(
                     ui.card_header("📊 [A] 주요 변수의 이상 발생 횟수"),
                     ui.output_plot("anomaly_variable_count", height="300px")
                 ),
-                # [B] 이상 탐지 알림
+                # TAB 2 [B] 이상 탐지 알림
                 ui.card(
                     ui.card_header("🔔 [B] 이상 탐지 알림"),
                     ui.output_ui("anomaly_notifications")
@@ -106,7 +113,7 @@ app_ui = ui.page_fluid(
                 col_widths=[6, 6]
             ),
             ui.layout_columns(
-                # [C] 시간에 따른 이상 분석
+                #TAB 2 [C] 시간에 따른 이상 분석
                 ui.card(
                     ui.card_header("📈 [C] 시간에 따른 이상 분석"),
                     ui.div(
@@ -128,49 +135,65 @@ app_ui = ui.page_fluid(
                 col_widths=[6, 6]
             )
         ),
-        
         # ================================
         # TAB 3: 품질
         # ================================
 
             ui.nav_panel("품질 이상 탐지",
-                                    ui.layout_columns(
-                                        ui.card(
-                                            ui.card_header("[A]"),
-                                            ui.input_select(
-                                                "grouping_unit", 
-                                                "📅 기간 단위 선택", 
-                                                choices=["일", "주", "월"], 
-                                                selected="일"
-                                            ),
-                                            ui.output_ui("group_choice"),
-                                            ui.output_plot("defect_rate_plot", height="300px"),
-                                            
-                                        ),
-                                        ui.card(
-                                            ui.card_header("[B]"),
-                                        )
-                                    ),
-                                    ui.layout_columns(
-                                        ui.card(
-                                            ui.card_header("[C]"),
-                                        ),
-                                        ui.card(
-                                            ui.card_header("[D]"),
-                                        )
-                                    )
-                                ),
-                                title = "🚀실시간 스트리밍 대시보드"
-                            )
-                        )
+                # TAB 3 [A] 
+                ui.layout_columns(
+                    ui.card(
+                        ui.card_header("[A]"),
+                        ui.input_date_range(
+                            "date_range", 
+                            "📅 기간 선택", 
+                            start="2019-02-21",  # 데이터 시작일
+                            end="2019-03-12",    # 데이터 종료일 # 기본값
+                        ),
+                        ui.output_plot("defect_rate_plot", height="300px"),
+
+                    ),
+                    # TAB 3 [B]
+                    ui.card(
+                        ui.card_header("[B]"),
+                        ui.output_ui("current_prediction"),
+                        ui.output_ui("prediction_log_table")
+                    )
+                ),
+                # TAB 3 [C]
+                ui.layout_columns(
+                    ui.card(
+                        ui.card_header("[C]"),
+                        ui.input_select(
+                            "fail_time_unit", 
+                            "시간 단위 선택", 
+                            choices=["1시간", "3시간", "일", "주", "월"], 
+                            selected="일"
+                        ),
+                        ui.output_plot("fail_rate_by_time", height="350px")
+                    ),
+                    ui.card(
+                        ui.card_header("[D]"),
+                    )
+                )
+            ),
+            title = "🚀실시간 스트리밍 대시보드"
+        )
+    )
+
 # ================================
 # ⚙️ 3. 서버 로직
 # ================================
 def server(input, output, session):
     # 초기 상태
     streamer = reactive.Value(RealTimeStreamer())
+    accumulator = reactive.value(StreamAccumulator(static_df))
     current_data = reactive.Value(pd.DataFrame())
     is_streaming = reactive.Value(False)
+
+
+    prediction_table_logs = reactive.Value([])  # TAB 3. [B] 로그 테이블용
+    latest_logged_time = reactive.Value(None)
 
     # ================================
     # 스트리밍 제어
@@ -202,6 +225,10 @@ def server(input, output, session):
             next_batch = s.get_next_batch(1)
             if next_batch is not None:
                 current_data.set(s.get_current_data())
+
+                # ✅ 누적기록 클래스도 업데이트 (전체 컬럼)
+                accum = accumulator.get()
+                accum.accumulate(next_batch)  # 내부 상태 갱신
             else:
                 is_streaming.set(False)
         except Exception as e:
@@ -225,29 +252,51 @@ def server(input, output, session):
         
         
     # ================================
-    # TAP 1 [A] - 스트리밍 표시 
+    # TAP 1 [A] - 스트리밍 표시
     # ================================
     @output
     @render.plot
     def stream_plot():
         try:
-            df = current_data.get()
+            df = current_data.get().tail(6)
+            print(df)
+            # 데이터가 없을 경우 메시지 출력
             if df.empty:
                 fig, ax = plt.subplots()
                 ax.text(0.5, 0.5, "스트리밍을 시작하세요", ha='center', va='center')
                 ax.set_xticks([])
                 ax.set_yticks([])
                 return fig
+
+            # ✅ registration_time 파싱 (없을 경우 대비)
+            if "registration_time" not in df.columns:
+                raise ValueError("'registration_time' 컬럼이 없습니다.")
+            df["registration_time"] = pd.to_datetime(df["registration_time"])
+
+            # ✅ 그래프 그리기
             fig, ax = plt.subplots(figsize=(10, 4))
             for col in selected_cols:
-                ax.plot(df[col].values, label=col)
-            ax.legend()
+                if col in df.columns:
+                    ax.plot(df["registration_time"], df[col].values, label=col)
+                else:
+                    print(f"⚠️ 컬럼 없음: {col}")
+            
             ax.set_title("실시간 센서 데이터")
+            ax.set_xlabel("시간")
+            ax.legend()
             ax.grid(True)
+
+            # ✅ 시간 x축 포맷 회전
+            fig.autofmt_xdate()
+
             return fig
+
         except Exception as e:
+            print("⛔ stream_plot 오류:", e)
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
+            ax.set_xticks([])
+            ax.set_yticks([])
             return fig
     # ================================
     # TAP 1 [B] - 실시간 값 
@@ -320,7 +369,7 @@ def server(input, output, session):
     @render.ui
     def anomaly_alerts():
         try:
-            df = streamer.get().get_total_data()
+            df = accumulator.get().get_data()
             if df.empty:
                 return ui.div("데이터 없음", class_="text-muted")
 
@@ -370,7 +419,7 @@ def server(input, output, session):
     @render.plot
     def anomaly_variable_count():
         try:
-            df = streamer.get().get_total_data()
+            df = accumulator.get().get_data()
             if df.empty:
                 fig, ax = plt.subplots()
                 ax.text(0.5, 0.5, "데이터 없음", ha='center', va='center')
@@ -423,7 +472,7 @@ def server(input, output, session):
     @render.ui
     def anomaly_notifications():
         try:
-            df = streamer.get().get_total_data()
+            df = accumulator.get().get_data()
             if df.empty:
                 return ui.div("데이터 없음", class_="text-muted")
 
@@ -489,7 +538,7 @@ def server(input, output, session):
     @render.plot
     def anomaly_time_analysis():
         try:
-            df = streamer.get().get_total_data()
+            df = accumulator.get().get_data()
             if df.empty or 'datetime' not in df.columns:
                 fig, ax = plt.subplots()
                 ax.text(0.5, 0.5, "시간 데이터 없음", ha='center', va='center')
@@ -560,7 +609,7 @@ def server(input, output, session):
             unit = input.grouping_unit()  # "일", "주", "월"
 
             #df_vis = static_df.copy()
-            df_vis = streamer.get().get_total_data()
+            df_vis = accumulator.get().get_data()
 
             # 문자열 날짜를 datetime으로 변환
             df_vis['datetime'] = pd.to_datetime(df_vis['registration_time'], errors="coerce")
@@ -606,7 +655,7 @@ def server(input, output, session):
     def group_choice():
         try:
             unit = input.grouping_unit()
-            df_vis = streamer.get().get_total_data()
+            df_vis = accumulator.get().get_data()
             df_vis['datetime'] = pd.to_datetime(df_vis['registration_time'], errors="coerce")
 
             if unit == "일":
@@ -620,7 +669,207 @@ def server(input, output, session):
             return ui.input_select("selected_group", "📆 조회할 기간 선택", choices=unique_groups, selected=unique_groups[-1] if unique_groups else None)
         except:
             return ui.input_select("selected_group", "📆 조회할 기간 선택", choices=["선택 불가"], selected=None)
+# ================================
+    # TAP 3 [A] - 이상 불량 알림 
+    # ================================
+    @output
+    @render.plot
+    def defect_rate_plot():
+        try:
+            # 기간 선택
+            start_date, end_date = input.date_range()
 
+            df_vis = accumulator.get().get_data()
+            df_vis = df_vis.loc[:, ~df_vis.columns.duplicated()]  # 중복 열 제거
+            df_vis['datetime'] = pd.to_datetime(df_vis['registration_time'], errors="coerce")
+
+            # 필터링된 범위 적용
+            mask = (df_vis['datetime'].dt.date >= pd.to_datetime(start_date).date()) & \
+                   (df_vis['datetime'].dt.date <= pd.to_datetime(end_date).date())
+            df_filtered = df_vis.loc[mask]
+
+            if df_filtered.empty:
+                raise ValueError("선택한 기간 내 데이터가 없습니다.")
+
+            counts = df_filtered['passorfail'].value_counts().to_dict()
+
+            labels = ['양품', '불량']
+            sizes = [counts.get(0, 0), counts.get(1, 0)]
+            colors = ['#4CAF50', '#F44336']
+
+            fig, ax = plt.subplots()
+            wedges, _, _ = ax.pie(
+                sizes, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90
+            )
+            ax.axis('equal')
+            ax.set_title(f"{start_date} ~ {end_date} 불량률")
+            ax.legend(wedges, labels, title="예측 결과", loc="upper right", bbox_to_anchor=(1.1, 1))
+
+            return fig
+
+        except Exception as e:
+            fig, ax = plt.subplots()
+            ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
+            return fig
+# ================================
+    # TAP 3 [B] - 이상 불량 알림 
+# ================================
+# ================================
+# TAP 3 [B] - 이상 불량 알림
+# ================================
+    @output
+    @render.ui
+    def current_prediction():
+        try:
+            df = current_data.get()
+            if df.empty:
+                print("⚠️ current_data가 비어 있음")
+                return ui.div("데이터 없음", class_="text-muted")
+
+            # 최신 데이터 한 행
+            latest = df.iloc[-1]
+
+            if 'passorfail' not in latest:
+                print("⚠️ 'passorfail' 컬럼이 존재하지 않음")
+                return ui.div("예측값 없음", class_="text-muted")
+
+            # 결합 확률은 이미 'passorfail' 컬럼에 예측값이 0~1로 들어온다고 가정
+            prob = latest['passorfail']
+            result = "불량" if prob >= 0.5 else "양품"
+            icon = "❌" if result == "불량" else "✅"
+            color_class = "alert alert-danger" if result == "불량" else "alert alert-success"
+
+            reg_time = latest.get('registration_time')
+            try:
+                reg_time = pd.to_datetime(reg_time).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as time_err:
+                print(f"⚠️ 시간 파싱 오류: {time_err}")
+                reg_time = "시간 정보 없음"
+
+            return ui.div(
+                ui.div(
+                    ui.h6("🧾 판정 결과"),
+                    ui.h4(f"{icon} {result}", class_="fw-bold"),
+                    class_="mb-2"
+                ),
+                ui.div(
+                    ui.h6("🕒 판정 시간"),
+                    ui.p(reg_time)
+                ),
+                class_=f"{color_class} p-3 rounded"
+            )
+
+        except Exception as e:
+            print(f"⛔ current_prediction 오류 발생: {e}")
+            return ui.div(f"오류: {str(e)}", class_="text-danger")
+
+    @reactive.effect
+    @reactive.event(current_data)
+    def log_prediction_from_current_row():
+        df = current_data.get()
+        if df.empty or 'passorfail' not in df.columns:
+            return
+
+        row = df.iloc[-1]
+        prob = row.get('passorfail', None)
+
+        if pd.isna(prob):
+            return
+
+        result = "불량" if prob >= 0.5 else "양품"
+        reg_time = row.get('registration_time')
+        try:
+            reg_time = pd.to_datetime(reg_time).strftime("%Y-%m-%d %H:%M:%S")
+        except:
+            reg_time = str(reg_time)
+
+        logs = prediction_table_logs.get()
+        logs.append({
+            "판정 시간": reg_time,
+            "결과": result
+        })
+        prediction_table_logs.set(logs[-20:])  # 최신 20개만 유지
+
+    @output
+    @render.ui
+    def prediction_log_table():
+        logs = prediction_table_logs.get()
+        if not logs:
+            return ui.div("예측 로그 없음", class_="text-muted")
+
+        headers = ["판정 시간", "결과"]
+        table_rows = [ui.tags.tr(*[ui.tags.th(h) for h in headers])]
+
+        for log in reversed(logs):  # 최신이 위에
+            table_rows.append(
+                ui.tags.tr(
+                    ui.tags.td(log["판정 시간"]),
+                    ui.tags.td(log["결과"]),
+                )
+            )
+
+        return ui.div(
+        ui.tags.table(
+            {"class": "table table-sm table-bordered table-striped mb-0"},
+            *table_rows
+        ),
+        style="max-height: 200px; overflow-y: auto;"  # 스크롤 설정
+    )
+# ================================
+    # TAP 3 [C] - 이상 불량 알림 
+# ================================ 
+    @output
+    @render.plot
+    def fail_rate_by_time():
+        try:
+            df = accumulator.get().get_data()
+            if df.empty or 'passorfail' not in df.columns:
+                raise ValueError("데이터 없음")
+
+            # datetime 생성
+            if 'datetime' not in df.columns:
+                df['datetime'] = pd.to_datetime(df['registration_time'], errors='coerce')
+
+            # 시간 단위 선택
+            unit = input.fail_time_unit()
+            if unit == "1시간":
+                df['time_group'] = df['datetime'].dt.floor('H')
+            elif unit == "3시간":
+                df['time_group'] = df['datetime'].dt.floor('3H')
+            elif unit == "일":
+                df['time_group'] = df['datetime'].dt.date
+            elif unit == "주":
+                df['time_group'] = df['datetime'].dt.to_period('W')
+            elif unit == "월":
+                df['time_group'] = df['datetime'].dt.to_period('M')
+
+            # 불량률 계산
+            total_counts = df.groupby('time_group').size()
+            fail_counts = df[df['passorfail'] == 1].groupby('time_group').size()
+            rate = (fail_counts / total_counts).fillna(0)
+
+            # ⛔ 기존 코드에서는 전체 rate 사용
+            # ✅ 수정: 가장 최근 20개만 사용
+            rate = rate.sort_index().iloc[-20:]  # 최근 시간 기준 정렬 후 20개 선택
+
+            labels = rate.index.astype(str)
+            values = rate.values
+
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(labels, values, marker='o', linestyle='-')
+            ax.set_title(f"시간 단위별 불량률 분석 ({unit}) - 최근 20개")
+            ax.set_xlabel("시간 단위")
+            ax.set_ylabel("불량률")
+            ax.set_ylim(0, 1)
+            ax.grid(True, alpha=0.3)
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            return fig
+
+        except Exception as e:
+            fig, ax = plt.subplots()
+            ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center')
+            return fig
 # ================================
 # 🚀 4. 앱 실행
 # ================================

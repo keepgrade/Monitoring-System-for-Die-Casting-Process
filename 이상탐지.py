@@ -203,3 +203,68 @@ print(confusion_matrix(result.real, result.pred))
 
 print("\n📌 Classification Report")
 print(classification_report(result.real, result.pred))
+
+
+
+
+
+
+
+
+
+class RealTimeStreamer:
+    def __init__(self):
+        self.test_df = streaming_df.copy()
+        self.pointer = 0
+        self.current_data = pd.DataFrame(columns=selected_cols)
+
+        # ✅ 통합된 누적 데이터프레임 (초기값 = static_df의 공통 컬럼만)
+        self.total_df = static_df[self._common_columns()].copy()
+
+    def get_next_batch(self, n=1):
+        if self.pointer >= len(self.test_df):
+            return None
+
+        end = min(self.pointer + n, len(self.test_df))
+        batch = self.test_df.iloc[self.pointer:end]
+
+        # 필요한 컬럼만 추출 및 전처리
+        batch = self._preprocess(batch)
+
+        # 누적 저장
+        self.current_data = pd.concat([self.current_data, batch], ignore_index=True)
+        self.total_df = pd.concat([self.total_df, batch], ignore_index=True)
+
+        self.pointer = end
+        return batch
+
+    def get_current_data(self):
+        """현재까지 스트리밍된 데이터 (선택된 컬럼 기준)"""
+        return self.current_data
+
+    def get_total_data(self):
+        """static_df + streaming_df 누적된 전체 데이터"""
+        return self.total_df
+
+    def reset_stream(self):
+        """스트리밍 상태 초기화"""
+        self.pointer = 0
+        self.current_data = pd.DataFrame(columns=selected_cols)
+        self.total_df = static_df[self._common_columns()].copy()
+
+    def get_stream_info(self):
+        """진행률 정보 반환"""
+        progress = 100 * self.pointer / len(self.test_df)
+        return {
+            "progress": progress,
+            "total": len(self.test_df),
+            "current": self.pointer
+        }
+
+    def _preprocess(self, df):
+        """필요한 컬럼만 추출 (향후 전처리 확장 가능)"""
+        return df[self._common_columns()].copy()
+
+    def _common_columns(self):
+        """static_df와 streaming_df 간 공통 컬럼 반환"""
+        return sorted(set(static_df.columns).intersection(set(streaming_df.columns)))
