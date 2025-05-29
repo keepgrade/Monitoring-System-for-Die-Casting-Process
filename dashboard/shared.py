@@ -37,67 +37,37 @@ sensor_labels = {
     "low_section_speed": ("저속구간속도", "mm/s"),
     # 필요 시 더 추가
 }
+# 사용할 센서 컬럼 선택
+selected_cols = ['molten_temp', 'cast_pressure', 'high_section_speed']
+df_selected = streaming_df[selected_cols].reset_index(drop=True)
 
 # ================================
 # 🔧 실시간 스트리밍 클래스 정의
 # ================================
 class RealTimeStreamer:
     def __init__(self):
-        self.test_df = streaming_df.copy()
-        self.pointer = 0
-        # 지금까지 스트리밍된 센서 데이터 (그래프 시각화용 누적 프레임)
-        self.current_data = pd.DataFrame(columns=sensor_labels)
-        # static_df에서 streaming_df와 공통된 컬럼만 추출하여 초기화 (누적용)
-        self.total_df = static_df[self._common_columns()].copy()
+        self.full_data = df_selected.copy()
+        self.current_index = 0
 
-    def get_next_batch(self, n=1):
-
-        end = min(self.pointer + n, len(self.test_df))
-        batch = self.test_df.iloc[self.pointer:end]
-
-        try:
-            # ✅ 전처리 시 에러 방지
-            batch = self._preprocess(batch)
-
-            # 누적 저장
-            self.current_data = pd.concat([self.current_data, batch], ignore_index=True)
-            self.total_df = pd.concat([self.total_df, batch], ignore_index=True)
-
-        except Exception as e:
-            print(f"[⚠️ 컬럼 오류 무시] {e}")
-            # 전처리 실패 시 현재 batch는 무시하고 넘어감
-            batch = pd.DataFrame()  # 빈 DF 반환
-
-        self.pointer = end
+    def get_next_batch(self, batch_size=1):
+        if self.current_index >= len(self.full_data):
+            return None
+        end_index = min(self.current_index + batch_size, len(self.full_data))
+        batch = self.full_data.iloc[self.current_index:end_index].copy()
+        self.current_index = end_index
         return batch
 
     def get_current_data(self):
-        # 현재까지 스트리밍된 데이터 (선택된 컬럼 기준)
-        return self.current_data
-
-    def get_total_data(self):
-        # static_df + streaming_df 누적된 전체 데이터
-        return self.total_df
+        if self.current_index == 0:
+            return pd.DataFrame()
+        return self.full_data.iloc[:self.current_index].copy()
 
     def reset_stream(self):
-        # 스트리밍 상태 초기화
-        self.pointer = 0
-        self.current_data = pd.DataFrame(columns=sensor_labels)
-        self.total_df = static_df[self._common_columns()].copy()
+        self.current_index = 0
 
     def get_stream_info(self):
-        # 진행률 정보 반환
-        progress = 100 * self.pointer / len(self.test_df)
         return {
-            "progress": progress,
-            "total": len(self.test_df),
-            "current": self.pointer
+            'total_rows': len(self.full_data),
+            'current_index': self.current_index,
+            'progress': (self.current_index / len(self.full_data)) * 100 if len(self.full_data) > 0 else 0
         }
-
-    def _preprocess(self, df):
-        # 필요한 컬럼만 추출 (향후 전처리 확장 가능)
-        return df[self._common_columns()].copy()
-
-    def _common_columns(self):
-        # static_df와 streaming_df 간 공통 컬럼 반환
-        return list(set(static_df.columns).intersection(set(streaming_df.columns)))

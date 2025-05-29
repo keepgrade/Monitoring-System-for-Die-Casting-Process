@@ -10,10 +10,18 @@ from datetime import datetime, timedelta
 import matplotlib as mpl
 import joblib
 import warnings
+from plotly.graph_objs import Figure, Scatter
+import plotly.graph_objs as go
+from shinywidgets import render_widget
+
 warnings.filterwarnings('ignore')
 
 plt.rcParams['font.family'] = 'Malgun Gothic'  # 윈도우
 mpl.rcParams['axes.unicode_minus'] = False  # 마이너스 부호 깨짐 방지
+
+selected_cols = ['molten_temp', 'cast_pressure', 'high_section_speed']
+df_selected = streaming_df[selected_cols].reset_index(drop=True)
+
 
 # ================================
 # 🖼️ 2. UI 정의
@@ -47,7 +55,6 @@ app_ui = ui.page_fluid(
                         ui.input_action_button("reset", "🔄 리셋", class_="btn-secondary me-2"),
                         ui.output_ui("stream_status"),
                         ui.output_ui("progress_bar"),
-                        class_="mb-3"
                     )
                 )
             ),
@@ -55,16 +62,7 @@ app_ui = ui.page_fluid(
                 # [A] 실시간 그래프
                 ui.card(
                     ui.card_header("📊 [A] 실시간 그래프"),
-                    ui.div(
-                        ui.input_checkbox_group(
-                            "sensor_filter",
-                            "센서 선택",
-                            choices=sensor_labels,
-                            selected=sensor_labels
-                        ),
-                        class_="mb-3"
-                    ),
-                    ui.output_plot("real_time_graph", height="350px")
+                    ui.output_plot("stream_plot", height="400px")
                 ),
                 # [B] 실시간 값
                 ui.card(
@@ -78,12 +76,7 @@ app_ui = ui.page_fluid(
                 ui.card(
                     ui.card_header("📝 [C] 실시간 로그"),
                     ui.div(
-                        ui.input_text("log_filter", "키워드 검색", placeholder="검색어 입력..."),
-                        class_="mb-2"
-                    ),
-                    ui.div(
-                        ui.output_ui("real_time_logs"),
-                        class_="log-container"
+                        ui.output_table("recent_data_table")
                     )
                 ),
                 # [D] 이상 불량 알림 탭
@@ -178,8 +171,6 @@ def server(input, output, session):
     streamer = reactive.Value(RealTimeStreamer())
     current_data = reactive.Value(pd.DataFrame())
     is_streaming = reactive.Value(False)
-    logs = reactive.Value([])
-    prediction_logs = reactive.Value([])
 
     # ================================
     # 스트리밍 제어
@@ -200,62 +191,23 @@ def server(input, output, session):
         streamer.get().reset_stream()
         current_data.set(pd.DataFrame())
         is_streaming.set(False)
-        logs.set([])
-        prediction_logs.set([])
-
-    # 스트리밍 실패 카운터 (최대 5회 허용)
-    fail_count = reactive.Value(0)
 
     @reactive.effect
     def stream_data():
-        reactive.invalidate_later(1)  # 항상 재호출 예약
-
-        if not is_streaming.get():
-            return
-
         try:
+            if not is_streaming.get():
+                return
+            reactive.invalidate_later(1)
             s = streamer.get()
             next_batch = s.get_next_batch(1)
-
-            # 데이터가 비어있지 않으면 정상 처리
-            if next_batch is not None and not next_batch.empty:
-                fail_count.set(0)
+            if next_batch is not None:
                 current_data.set(s.get_current_data())
-
-                new_logs = logs.get()
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                row = next_batch.iloc[-1]
-
-                for sensor, (label, unit) in sensor_labels.items():
-                    if sensor in row and pd.notna(row[sensor]):
-                        new_logs.append(f"[{timestamp}] {label}: {row[sensor]:.1f}{unit}")
-
-                if len(new_logs) > 1000000:
-                    new_logs = new_logs[-100000:]
-
-                logs.set(new_logs)
-
-                # 예측 로그
-                pred_logs = prediction_logs.get()
-                if 'passorfail' in row:
-                    prob = np.random.uniform(0, 1)
-                    result = "불량" if prob > 0.5 else "양품"
-                    pred_logs.append(f"[{timestamp}] 확률: {prob:.3f}, 판정: {result}")
-                    if len(pred_logs) > 20:
-                        pred_logs = pred_logs[-20:]
-                    prediction_logs.set(pred_logs)
-
             else:
-                # fail_count 누적, 5회 이상이면 종료
-                fc = fail_count.get() + 1
-                fail_count.set(fc)
-                if fc >= 100:
-                    print("[⛔️ 종료] 데이터 스트림이 5회 이상 비었습니다.")
-                    is_streaming.set(False)
-
+                is_streaming.set(False)
         except Exception as e:
-            print(f"[⚠️ 스트리밍 예외] {e}")
-            # 스트리밍을 끄지 말고 예외만 로깅
+            print("⛔ 오류 발생:", e)
+            is_streaming.set(False)
+
 
     # ================================
     # TAB 1: 공정 모니터링 Overview
@@ -265,64 +217,41 @@ def server(input, output, session):
     @output
     @render.ui
     def stream_status():
-        status = "🟢 스트리밍 중" if is_streaming.get() else "🔴 정지됨"
-        return ui.div(status, class_="badge bg-info")
-
-    @output
-    @render.ui
-    def progress_bar():
         try:
-            progress = streamer.get().get_stream_info()
-            return ui.div(f"진행률: {progress:.1f}%", class_="text-muted small")
-        except:
-            return ui.div("진행률: 0%", class_="text-muted small")
+            status = "🟢 스트리밍 중" if is_streaming.get() else "🔴 정지됨"
+            return ui.div(status)
+        except Exception as e:
+            return ui.div(f"에러: {str(e)}")
+        
+        
     # ================================
     # TAP 1 [A] - 스트리밍 표시 
     # ================================
     @output
     @render.plot
-    def real_time_graph():
+    def stream_plot():
         try:
             df = current_data.get()
-
-            # 1. 데이터가 아예 없을 경우
             if df.empty:
-                fig, ax = plt.subplots(figsize=(12, 6))
-                ax.text(0.5, 0.5, "스트리밍을 시작하세요", ha='center', va='center', fontsize=16)
-                ax.set_xlim(0, 1)
-                ax.set_ylim(0, 1)
+                fig, ax = plt.subplots()
+                ax.text(0.5, 0.5, "스트리밍을 시작하세요", ha='center', va='center')
+                ax.set_xticks([])
+                ax.set_yticks([])
                 return fig
-
-            # 2. 사용자가 선택한 센서
-            selected_sensors = input.sensor_filter() or []
-
-            # 3. 그래프 준비
-            fig, ax = plt.subplots(figsize=(12, 6))
-
-            for col in selected_sensors:
-                if col in df.columns:
-                    col_data = df[col]
-
-                    # 숫자형이고 NaN이 아닌 데이터가 있는 경우만 그림
-                    if pd.api.types.is_numeric_dtype(col_data) and not col_data.dropna().empty:
-                        ax.plot(range(len(col_data)), col_data, label=col, linewidth=2)
-
+            fig, ax = plt.subplots(figsize=(10, 4))
+            for col in selected_cols:
+                ax.plot(df[col].values, label=col)
             ax.legend()
             ax.set_title("실시간 센서 데이터")
-            ax.grid(True, alpha=0.3)
-            ax.set_xlabel("시간 (인덱스)")
-
+            ax.grid(True)
             return fig
-
         except Exception as e:
-            fig, ax = plt.subplots(figsize=(8, 4))
-            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', va='center', fontsize=12)
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
+            fig, ax = plt.subplots()
+            ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
             return fig
-
-
-
+    # ================================
+    # TAP 1 [B] - 실시간 값 
+    # ================================
     @output
     @render.ui
     def real_time_values():
@@ -370,46 +299,23 @@ def server(input, output, session):
             
         except Exception as e:
             return ui.div(f"오류: {str(e)}", class_="text-danger")
-
+    # ================================
+    # TAP 1 [C] - 실시간 로그
+    # ================================
     @output
-    @render.ui
-    def real_time_logs():
+    @render.table
+    def recent_data_table():
         try:
-            all_logs = logs.get()
-            filter_keyword = input.log_filter()
-            
-            if filter_keyword:
-                filtered_logs = [log for log in all_logs if filter_keyword.lower() in log.lower()]
-            else:
-                filtered_logs = all_logs
-            
-            # 최근 로그가 위로 올라오도록 역순 정렬
-            filtered_logs = list(reversed(filtered_logs[-20:]))
-            
-            if not filtered_logs:
-                return ui.div("로그 없음", class_="text-muted")
-            
-            log_items = []
-            for log in filtered_logs:
-                # 키워드에 따른 색상 구분
-                if "온도" in log:
-                    badge_class = "bg-warning"
-                elif "압력" in log:
-                    badge_class = "bg-info"
-                else:
-                    badge_class = "bg-secondary"
-                
-                log_items.append(
-                    ui.div(
-                        ui.span(log, class_=f"badge {badge_class} mb-1 d-block text-start")
-                    )
-                )
-            
-            return ui.div(*log_items)
-            
+            df = current_data.get()
+            if df.empty:
+                return pd.DataFrame({"상태": ["데이터 없음"]})
+            return df.tail(10).round(2)
         except Exception as e:
-            return ui.div(f"오류: {str(e)}", class_="text-danger")
-
+            return pd.DataFrame({"에러": [str(e)]})
+        
+    # ================================
+    # TAP 1 [D] - 이상 불량 알림 
+    # ================================
     @output
     @render.ui
     def anomaly_alerts():
