@@ -264,11 +264,11 @@ def server(input, output, session):
     @render.plot
     def stream_plot():
         try:
-            df = current_data.get().tail(10)
+            df = current_data.get().tail(20)
 
             if df.empty:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "📡 스트리밍을 시작하세요", ha='center', va='center', fontsize=14)
+                ax.text(0.5, 0.5, "스트리밍을 시작하세요", ha='center', va='center', fontsize=14)
                 ax.set_xticks([])
                 ax.set_yticks([])
                 return fig
@@ -307,7 +307,7 @@ def server(input, output, session):
             axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             fig.autofmt_xdate()
 
-            fig.suptitle("🔧 실시간 센서 스트리밍", fontsize=16, fontweight='bold')
+            fig.suptitle("실시간 센서 스트리밍", fontsize=16, fontweight='bold')
             fig.tight_layout(rect=[0, 0.03, 1, 0.95])  # suptitle 공간 확보
 
             return fig
