@@ -157,13 +157,11 @@ def server(input, output, session):
                         linewidth=2,
                         marker='o', markersize=5)
 
-                ax.set_ylabel(col, fontsize=11)
-                ax.legend(loc='upper right', fontsize=10)
-                ax.grid(True, linestyle='--', alpha=0.5)
-                ax.tick_params(axis='both', labelsize=9)
-
-            axs[-1].set_xlabel("시간", fontsize=11)
-            axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+                
+                #ax.set_ylabel(col, fontsize=11)
+            # X축 라벨 및 시간 포맷 설정
+            axs[-1].set_xlabel("월-일 시:분", fontsize=11)
+            axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))  # ← 요거 수정
             fig.autofmt_xdate()
 
             # fig.suptitle("실시간 센서 스트리밍", fontsize=16, fontweight='bold')
