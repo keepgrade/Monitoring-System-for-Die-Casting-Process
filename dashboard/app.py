@@ -123,7 +123,8 @@ def server(input, output, session):
     @render.plot
     def stream_plot():
         try:
-            df = current_data.get().tail(20)
+            df = current_data.get()
+            df = df[df['mold_code'] == 8412].tail(20)
 
             if df.empty:
                 fig, ax = plt.subplots()
@@ -294,7 +295,7 @@ def server(input, output, session):
             if df.empty:
                 return ui.HTML("<p class='text-muted'>데이터 없음</p>")
 
-            df = df.tail(7).round(2).copy()
+            df = df.tail(10).round(2).copy()
             rows = []
 
             # 헤더 행
@@ -401,7 +402,6 @@ def server(input, output, session):
             return ui.div(
                 ui.div(
                     ui.h6(f"{anomaly_icon} 이상 탐지"),
-                    ui.p(f"상태: {anomaly_status}"),
                     ui.p(f"상태: {anomaly_score}"),
                     ui.p(f"시각: {reg_time}"),
                     ui.input_action_button("goto_2page", "이상탐지 확인하기", class_="btn btn-sm btn-outline-primary"),
@@ -1017,7 +1017,7 @@ def server(input, output, session):
                                     ui.card(
                                         ui.card_header("[C] 실시간 로그"),
                                         ui.div(
-                                            ui.h5("실시간 로그 (최근 7건)"),
+                                            ui.h5("실시간 로그 (최근 10건)"),
                                             ui.output_table("recent_data_table"),
                                             ui.output_ui("download_controls")  # 형식 선택 + 다운로드 버튼
                                         )
@@ -1080,7 +1080,7 @@ def server(input, output, session):
                                     # TAB 3 [A] 
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[A]"),
+                                            ui.card_header("[A] 기간별 품질 이상 "),
                                             ui.input_date_range(
                                                 "date_range", 
                                                 "📅 기간 선택", 
@@ -1092,7 +1092,7 @@ def server(input, output, session):
                                         ),
                                         # TAB 3 [B]
                                         ui.card(
-                                            ui.card_header("[B]"),
+                                            ui.card_header("[B] 불량 판별 알림림"),
                                             ui.output_ui("current_prediction"),
                                             ui.output_ui("prediction_log_table")
                                         )
@@ -1100,7 +1100,7 @@ def server(input, output, session):
                                     # TAB 3 [C]
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[C]"),
+                                            ui.card_header("[C] 기간별 불량량 추이"),
                                             ui.input_select(
                                                 "fail_time_unit", 
                                                 "시간 단위 선택", 
@@ -1110,7 +1110,7 @@ def server(input, output, session):
                                             ui.output_plot("fail_rate_by_time", height="350px")
                                         ),
                                         ui.card(
-                                            ui.card_header("[D]"),
+                                            ui.card_header("[D] 뭐하지?"),
                                         )
                                     )
                                 ),
