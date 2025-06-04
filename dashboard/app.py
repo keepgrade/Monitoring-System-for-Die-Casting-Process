@@ -126,8 +126,7 @@ def server(input, output, session):
     @render.plot
     def stream_plot():
         try:
-            df = current_data.get().tail(20)
-
+            df = current_data.get()
             if df.empty:
                 fig, ax = plt.subplots()
                 ax.text(0.5, 0.5, "스트리밍을 시작하세요", ha='center', va='center', fontsize=14)
@@ -139,13 +138,17 @@ def server(input, output, session):
                 raise ValueError("'registration_time' 컬럼이 없습니다.")
             df["registration_time"] = pd.to_datetime(df["registration_time"])
 
+            # ✅ 30분 초과한 데이터 제거
+            t_latest = df["registration_time"].max()
+            df = df[df["registration_time"] >= t_latest - pd.Timedelta(minutes=30)]
+            df=df.tail(20)
+
+            # ✅ 선택된 컬럼 필터링
             cols_to_plot = [col for col in selected_cols if col in df.columns][:3]
             if not cols_to_plot:
                 raise ValueError("선택된 컬럼이 없습니다.")
 
-            # ✅ 컬러 팔레트 (colorblind friendly)
             colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
-
             fig, axs = plt.subplots(nrows=len(cols_to_plot), ncols=1,
                                     figsize=(10, 3.5 * len(cols_to_plot)), sharex=True)
 
@@ -160,15 +163,10 @@ def server(input, output, session):
                         linewidth=2,
                         marker='o', markersize=5)
 
-                
-                #ax.set_ylabel(col, fontsize=11)
-            # X축 라벨 및 시간 포맷 설정
             axs[-1].set_xlabel("월-일 시:분", fontsize=11)
-            axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))  # ← 요거 수정
+            axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
             fig.autofmt_xdate()
-
-            # fig.suptitle("실시간 센서 스트리밍", fontsize=16, fontweight='bold')
-            fig.tight_layout(rect=[0, 0.03, 1, 0.95])  # suptitle 공간 확보
+            fig.tight_layout(rect=[0, 0.03, 1, 0.95])
 
             return fig
 
@@ -180,6 +178,7 @@ def server(input, output, session):
             ax.set_xticks([])
             ax.set_yticks([])
             return fig
+
 
     # ================================
     # TAP 1 [B] - 실시간 값 
@@ -399,12 +398,13 @@ def server(input, output, session):
                 reg_time = pd.to_datetime(reg_time).strftime("%Y-%m-%d %H:%M:%S")
             except:
                 reg_time = str(reg_time)
-            
+            icon = "✅" if anomaly_score == "정상" else "❌"
             return ui.div(
                 ui.div(
-                    ui.h6(f"{anomaly_icon} 이상 탐지"),
-                    ui.p(f"상태: {anomaly_score}"),
-                    ui.p(f"시각: {reg_time}"),
+                    ui.h6(f"🧾 이상 탐지"),
+                    ui.h4(f"{icon} {anomaly_score}", class_="fw-bold"),
+                    ui.h6("🕒 판정 시간"),
+                    ui.p(reg_time),
                     ui.input_action_button("goto_2page", "이상탐지 확인하기", class_="btn btn-sm btn-outline-primary"),
                     class_=f"{color_class} p-3 rounded"
                 )
@@ -469,6 +469,7 @@ def server(input, output, session):
     def go_to_page_3():
         ui.update_navs("main_nav", "품질 이상 판별   (Quality Defect Classification)") 
 
+
     # ================================
     # TAB 2: [A] 이상 예측
     # ================================
@@ -525,6 +526,7 @@ def server(input, output, session):
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"오류: {str(e)}", ha='center', va='center')
             return fig
+
     # ================================
     # TAB 2 [B]: 
     # ================================
@@ -547,8 +549,6 @@ def server(input, output, session):
             "level": level
         })
 
-        alert_logs.set(logs[-10:])  # 최근 10개까지만 유지
-    
 
     @reactive.effect
     @reactive.event(input.clear_alerts)
@@ -591,18 +591,23 @@ def server(input, output, session):
     # ================================
     @output
     @render.plot
-    def anomal_rate_by_time():
+    def anomaly_p_chart():
         try:
             df = accumulator.get().get_data()
-            if df.empty or 'is_anomaly' not in df.columns:
-                raise ValueError("데이터 없음")
 
-            # datetime 생성
-            if 'datetime' not in df.columns:
-                df['datetime'] = pd.to_datetime(df['registration_time'], errors='coerce')
+            # ✅ 필수 컬럼 존재 여부 확인
+            if df.empty:
+                raise ValueError("데이터가 비어 있습니다.")
+            if 'registration_time' not in df.columns:
+                raise ValueError("registration_time 컬럼이 존재하지 않습니다.")
+            if 'is_anomaly' not in df.columns:
+                raise ValueError("is_anomaly 컬럼이 존재하지 않습니다.")
 
-            # 시간 단위 선택
-            unit = input.anomaly_time_unit()
+            # ✅ datetime 파싱
+            df['datetime'] = pd.to_datetime(df['registration_time'], errors='coerce')
+
+            # ✅ 시간 단위 선택 (input ID: anomaly_chart_time_unit)
+            unit = input.anomaly_chart_time_unit()
             if unit == "1시간":
                 df['time_group'] = df['datetime'].dt.floor('H')
             elif unit == "3시간":
@@ -613,47 +618,54 @@ def server(input, output, session):
                 df['time_group'] = df['datetime'].dt.to_period('W')
             elif unit == "월":
                 df['time_group'] = df['datetime'].dt.to_period('M')
+            else:
+                raise ValueError(f"선택된 시간 단위 '{unit}'를 처리할 수 없습니다.")
 
-            # 불량 건수 계산 (is_anomaly가 -1인 경우를 불량으로 간주)
-            fail_counts = df[df['is_anomaly'] == -1].groupby('time_group').size()
+            # ✅ 그룹별 총 건수와 이상 건수 계산
+            n_i = df.groupby('time_group').size()
+            x_i = df[df['is_anomaly'] == -1].groupby('time_group').size()
+            x_i = x_i.reindex(n_i.index, fill_value=0)
 
-            # 최근 20개만 시각화
-            fail_counts = fail_counts.sort_index().iloc[-20:]
-            labels = fail_counts.index.astype(str).tolist()
-            values = fail_counts.values.tolist()
+            # ✅ 불량률 및 중심선 계산
+            p_i = x_i / n_i
+            p_hat = x_i.sum() / n_i.sum()
 
-            # (1) 그룹별 건수 집계
-            total_counts = df.groupby('time_group').size()
-            fail_counts = df[df['is_anomaly'] == -1].groupby('time_group').size()
+            # ✅ 관리 한계선 계산
+            std_err = np.sqrt(p_hat * (1 - p_hat) / n_i)
+            ucl = p_hat + 3 * std_err
+            lcl = (p_hat - 3 * std_err).clip(lower=0)
 
-            # (2) 누락 그룹 보정 및 0 채우기
-            fail_counts = fail_counts.reindex(total_counts.index, fill_value=0)
+            # ✅ 최근 20개만 시각화
+            last_n = 20
+            df_plot = pd.DataFrame({
+                "Group": n_i.index.astype(str),
+                "DefectiveRate": p_i,
+                "UCL": ucl,
+                "LCL": lcl,
+                "Center": p_hat
+            }).sort_index().iloc[-last_n:].reset_index(drop=True)
 
-            # (3) 최근 20개만 추출
-            fail_counts = fail_counts.sort_index().iloc[-20:]
-            labels = fail_counts.index.astype(str).tolist()
-            values = fail_counts.values.tolist()
-
-            # (4) 시각화
+            # ✅ 시각화
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(range(len(labels)), values, marker='o', linestyle='-')
+            ax.plot(df_plot.index, df_plot["DefectiveRate"], marker="o", label="Defective Rate")
+            ax.plot(df_plot.index, df_plot["UCL"], linestyle='--', color='red', label="UCL")
+            ax.plot(df_plot.index, df_plot["LCL"], linestyle='--', color='red', label="LCL")
+            ax.plot(df_plot.index, df_plot["Center"], linestyle=':', color='black', label="Center Line")
+            ax.fill_between(df_plot.index, df_plot["LCL"], df_plot["UCL"], color='red', alpha=0.1)
 
-            # X축 설정
-            ax.set_xticks(range(len(labels)))
-            ax.set_xticklabels(labels, rotation=45, ha='right')  # ✅ 오른쪽 정렬로 겹침 방지
-
-            # 기타 시각 요소
+            # ✅ x축 설정
+            ax.set_xticks(df_plot.index)
+            ax.set_xticklabels(df_plot["Group"], rotation=45, ha='right')
+            ax.set_ylabel("공정 이상률")
+            ax.set_title(f"공정 이상률 관리도 (단위: {unit})")
             ax.grid(True, alpha=0.3)
-            ax.set_ylabel("불량 건수")
-            ax.set_title("최근 단위 시간별 불량 건수 추이")
-
-            # ✅ 여백 자동 조정
+            ax.legend(loc="upper right")
             fig.tight_layout(pad=2.5)
             return fig
 
         except Exception as e:
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center')
+            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', va='center', color='red')
             return fig
 
     # ================================
@@ -1057,14 +1069,14 @@ def server(input, output, session):
                                         ui.card_header("[C] 시간에 따른 이상 분석"),
                                         ui.div(
                                             ui.input_select(
-                                                "anomaly_time_unit", 
+                                                "anomaly_chart_time_unit", 
                                                 "시간 단위 선택", 
                                                 choices=["1시간", "3시간", "일", "주", "월"], 
                                                 selected="일"
                                             ),
                                             class_="mb-3"
                                         ),
-                                        ui.output_plot("anomal_rate_by_time", height="300px")
+                                        ui.output_plot("anomaly_p_chart", height="300px")
                                     ),
                                     # [D] SHAP 해석, 변수 기여도 분석
                                     ui.card(
