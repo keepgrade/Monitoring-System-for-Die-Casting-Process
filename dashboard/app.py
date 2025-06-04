@@ -402,20 +402,63 @@ def server(input, output, session):
                     ui.p(f"시각: {datetime.now().strftime('%H:%M:%S')}"),
                     ui.input_action_button("goto_anomaly", "이상탐지 확인하기", class_="btn btn-sm btn-outline-primary"),
                     class_=anomaly_class
-                ),
-                # 불량 예측 카드
-                ui.div(
-                    ui.h6(f"{defect_icon} 불량 예측"),
-                    ui.p(f"상태: {defect_status}"),
-                    ui.p(f"확률: {defect_prob:.3f}"),
-                    ui.p(f"시각: {datetime.now().strftime('%H:%M:%S')}"),
-                    ui.input_action_button("goto_quality", "불량탐지 확인하기", class_="btn btn-sm btn-outline-primary"),
-                    class_=defect_class
                 )
             )
             
         except Exception as e:
             return ui.div(f"오류: {str(e)}", class_="text-danger")
+        
+        
+    @output
+    @render.ui
+    def current_prediction2():
+        try:
+            df = current_data.get()
+            if df.empty:
+                return ui.div("데이터 없음", class_="text-muted")
+
+            # 최신 데이터 한 행
+            latest = df.iloc[-1]
+
+            if 'passorfail' not in latest:
+                print("⚠️ 'passorfail' 컬럼이 존재하지 않음")
+                return ui.div("예측값 없음", class_="text-muted")
+
+            # 결합 확률은 이미 'passorfail' 컬럼에 예측값이 0~1로 들어온다고 가정
+            prob = latest['passorfail']
+            result = "불량" if prob >= 0.5 else "양품"
+            icon = "❌" if result == "불량" else "✅"
+            color_class = "alert alert-danger" if result == "불량" else "alert alert-success"
+
+            reg_time = latest.get('registration_time')
+            try:
+                reg_time = pd.to_datetime(reg_time).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as time_err:
+                print(f"⚠️ 시간 파싱 오류: {time_err}")
+                reg_time = "시간 정보 없음"
+
+            return ui.div(
+                ui.div(
+                    ui.h6("🧾 판정 결과"),
+                    ui.h4(f"{icon} {result}", class_="fw-bold"),
+                    class_="mb-2"
+                ),
+                ui.div(
+                    ui.h6("🕒 판정 시간"),
+                    ui.p(reg_time),
+                    ui.input_action_button("goto_3page", "불량탐지 확인하기", class_="btn btn-sm btn-outline-primary")
+                ),
+                class_=f"{color_class} p-3 rounded"
+            )
+
+        except Exception as e:
+            print(f"⛔ current_prediction 오류 발생: {e}")
+            return ui.div(f"오류: {str(e)}", class_="text-danger")
+    
+    @reactive.effect
+    @reactive.event(input.goto_3page)
+    def go_to_page_3():
+        ui.update_navs("main_nav", "품질 이상 판별	(Quality Defect Classification)") 
 
     # ================================
     # TAB 2: [A] 이상 예측
@@ -962,7 +1005,8 @@ def server(input, output, session):
                                     # [D] 이상 불량 알림 탭
                                     ui.card(
                                         ui.card_header("[D] 이상 불량 알림"),
-                                        ui.output_ui("anomaly_alerts")
+                                        ui.output_ui("anomaly_alerts"),
+                                        ui.output_ui("current_prediction2"),
                                     ),
                                     col_widths=[6, 6]
                                 )    
@@ -1057,6 +1101,7 @@ def server(input, output, session):
                                     ui.input_action_button("logout_button", "로그아웃", class_="btn btn-danger")
                                 )
                             ),
+                                id="main_nav",
                                 title = "LS 기가 펙토리"
                             )
                         )
