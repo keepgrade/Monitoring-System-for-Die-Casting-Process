@@ -21,7 +21,6 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import os
 
-
 warnings.filterwarnings('ignore')
 
 plt.rcParams['font.family'] = 'Malgun Gothic'  # 윈도우
@@ -32,155 +31,18 @@ selected_cols = [
     'cast_pressure',         # 주조 압력
     'high_section_speed',    # 고속 구간 속도
     'low_section_speed',     # 저속 구간 속도
-    'biscuit_thickness',      # 비스킷 두께
-    'mold_code'
+    'biscuit_thickness'      # 비스킷 두께
 ]
 df_selected = streaming_df[selected_cols].reset_index(drop=True)
-
-
-www_path = os.path.join(os.path.dirname(__file__), "www")
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "www")
 
 # ================================
-# 2. UI 정의
+# 🖼️ 2. UI 정의
 # ================================
 
 app_ui = ui.page_fluid(
-    ui.tags.head(
-        ui.tags.link(rel="stylesheet", href="./style.css")
-    ),
-    
-    ui.page_navbar(
-        # ================================
-        # TAB 1: 공정 모니터링 overview
-        # ================================
-        ui.nav_panel("공정 모니터링 Overview",
-            ui.layout_columns(
-                # [A] 실시간 그래프
-                ui.card(
-                    ui.row(
-                        ui.column(12,
-                            ui.div(
-                                ui.input_action_button("start", "▶ 시작", class_="btn-success me-2"),
-                                ui.input_action_button("pause", "⏸ 일시정지", class_="btn-warning me-2"),
-                                ui.input_action_button("reset", "🔄 리셋", class_="btn-secondary me-2"),
-                                ui.output_ui("stream_status"),
-                            )
-                        )
-                    ),
-                    ui.card_header("[A] 실시간 센서 스트리밍"),
-                    ui.output_plot("stream_plot", height="400px")
-                ),
-                # [B] 실시간 값
-                ui.card(
-                    ui.card_header("[B] 실시간 값"),
-                    ui.output_ui("real_time_values"),
-                ),
-                col_widths=[8, 4]
-            ),
-            ui.layout_columns(
-                # [C] 실시간 로그
-                ui.card(
-                    ui.card_header("[C] 실시간 로그"),
-                    ui.div(
-                        ui.h5("실시간 로그 (최근 7건)"),
-                        ui.output_table("recent_data_table"),
-                        ui.output_ui("download_controls")  # 형식 선택 + 다운로드 버튼
-                    )
-                ),
-                # [D] 이상 불량 알림 탭
-                ui.card(
-                    ui.card_header("[D] 이상 불량 알림"),
-                    ui.output_ui("anomaly_alerts")
-                ),
-                col_widths=[6, 6]
-            )    
-        ),
-        
-        # ================================
-        # TAB 2: 이상 예측
-        # ================================
-        ui.nav_panel("이상 예측",
-            ui.layout_columns(
-                # TAB 2 [A] 주요 변수의 이상 발생 횟수
-                ui.card(
-                    ui.card_header("[A] 주요 변수의 이상 발생 횟수"),
-                    ui.output_plot("anomaly_variable_count", height="300px")
-                ),
-                # TAB 2 [B] 이상 탐지 알림
-                ui.card(
-                    ui.card_header("[B] 이상 탐지 알림"),
-                    ui.output_ui("anomaly_notifications")
-                ),
-                col_widths=[6, 6]
-            ),
-            ui.layout_columns(
-                #TAB 2 [C] 시간에 따른 이상 분석
-                ui.card(
-                    ui.card_header("[C] 시간에 따른 이상 분석"),
-                    ui.div(
-                        ui.input_select(
-                            "anomaly_time_unit", 
-                            "시간 단위 선택", 
-                            choices=["1시간", "3시간", "일", "주", "월"], 
-                            selected="일"
-                        ),
-                        class_="mb-3"
-                    ),
-                    ui.output_plot("anomaly_time_analysis", height="300px")
-                ),
-                # [D] SHAP 해석, 변수 기여도 분석
-                ui.card(
-                    ui.card_header("[D] SHAP 변수 기여도 분석"),
-                    ui.output_table("shap_analysis_table")
-                ),
-                col_widths=[6, 6]
-            )
-        ),
-        # ================================
-        # TAB 3: 품질
-        # ================================
-
-            ui.nav_panel("품질 이상 탐지",
-                # TAB 3 [A] 
-                ui.layout_columns(
-                    ui.card(
-                        ui.card_header("[A]"),
-                        ui.input_date_range(
-                            "date_range", 
-                            "📅 기간 선택", 
-                            start="2019-02-21",  # 데이터 시작일
-                            end="2019-03-12",    # 데이터 종료일 # 기본값
-                        ),
-                        ui.output_plot("defect_rate_plot", height="300px"),
-
-                    ),
-                    # TAB 3 [B]
-                    ui.card(
-                        ui.card_header("[B]"),
-                        ui.output_ui("current_prediction"),
-                        ui.output_ui("prediction_log_table")
-                    )
-                ),
-                # TAB 3 [C]
-                ui.layout_columns(
-                    ui.card(
-                        ui.card_header("[C]"),
-                        ui.input_select(
-                            "fail_time_unit", 
-                            "시간 단위 선택", 
-                            choices=["1시간", "3시간", "일", "주", "월"], 
-                            selected="일"
-                        ),
-                        ui.output_plot("fail_rate_by_time", height="350px")
-                    ),
-                    ui.card(
-                        ui.card_header("[D]"),
-                    )
-                )
-            ),
-            title = "LS 기가 펙토리"
+            ui.output_ui("dynamic_ui")  # 전체 UI는 서버에서 조건에 따라 출력
         )
-    )
 
 # ================================
 # ⚙️ 3. 서버 로직
@@ -195,7 +57,8 @@ def server(input, output, session):
 
     prediction_table_logs = reactive.Value([])  # TAB 3. [B] 로그 테이블용
     latest_logged_time = reactive.Value(None)
-
+    # 로그인 상태 저장
+    login_status = reactive.Value(False)
     # ================================
     # 스트리밍 제어
     # ================================
@@ -238,7 +101,7 @@ def server(input, output, session):
 
 
     # ================================
-    # TAB 1: 공정 모니터링 Overview
+    # TAB 1: 실시간 공정 모니터링	Process Monitoring
     # ================================
 
     # ▶ 데이터 스트리밍 진행률을 퍼센트로 표시합니다.
@@ -1012,7 +875,194 @@ def server(input, output, session):
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center')
             return fig
+
+
+# ================================
+    # TAP 0  - 로그인 기능
+# ================================ 
+    # 로그인 버튼 처리
+    @reactive.effect
+    @reactive.event(input.login_button)
+    def login():
+        if input.username() == "admin" and input.password() == "1234":
+            login_status.set(True)
+        else:
+            ui.notification_show("❌ 로그인 실패", duration=3)
+
+    # 로그아웃 버튼 처리
+    @reactive.effect
+    @reactive.event(input.logout_button)
+    def logout():
+        login_status.set(False)
+
+    # 전체 UI 렌더링
+    @output
+    @render.ui
+    def dynamic_ui():
+        if not login_status.get():
+            # 로그인 화면 반환
+            return ui.card(
+                ui.div(
+                    ui.tags.img(
+                        src="./logo2.png",
+                        style="max-width: 300px; margin-bottom: 20px;"
+                    ),
+                    class_="text-center"
+                ),
+                ui.card_header("LS 기가 팩토리 로그인"),
+                ui.input_text("username", "아이디"),
+                ui.input_password("password", "비밀번호"),
+                ui.input_action_button("login_button", "로그인"),
+                ui.p("ID: admin / PW: 1234", class_="text-muted")
+            )
+        else:
+            return ui.page_fluid(
+                        ui.tags.head(
+                            ui.tags.link(rel="stylesheet", href="./style.css")
+                        ),
+                        
+                        ui.page_navbar(
+                            # ================================
+                            # TAB 1: 실시간 공정 모니터링	Process Monitoring
+                            # ================================
+                            ui.nav_panel("실시간 공정 모니터링	(Process Monitoring)",
+                                ui.layout_columns(
+                                    # [A] 실시간 그래프
+                                    ui.card(
+                                        ui.row(
+                                            ui.column(12,
+                                                ui.div(
+                                                    ui.input_action_button("start", "▶ 시작", class_="btn-success me-2"),
+                                                    ui.input_action_button("pause", "⏸ 일시정지", class_="btn-warning me-2"),
+                                                    ui.input_action_button("reset", "🔄 리셋", class_="btn-secondary me-2"),
+                                                    ui.output_ui("stream_status"),
+                                                )
+                                            )
+                                        ),
+                                        ui.card_header("[A] 실시간 센서 스트리밍"),
+                                        ui.output_plot("stream_plot", height="400px")
+                                    ),
+                                    # [B] 실시간 값
+                                    ui.card(
+                                        ui.card_header("[B] 실시간 값"),
+                                        ui.output_ui("real_time_values"),
+                                    ),
+                                    col_widths=[8, 4]
+                                ),
+                                ui.layout_columns(
+                                    # [C] 실시간 로그
+                                    ui.card(
+                                        ui.card_header("[C] 실시간 로그"),
+                                        ui.div(
+                                            ui.h5("실시간 로그 (최근 7건)"),
+                                            ui.output_table("recent_data_table"),
+                                            ui.output_ui("download_controls")  # 형식 선택 + 다운로드 버튼
+                                        )
+                                    ),
+                                    # [D] 이상 불량 알림 탭
+                                    ui.card(
+                                        ui.card_header("[D] 이상 불량 알림"),
+                                        ui.output_ui("anomaly_alerts")
+                                    ),
+                                    col_widths=[6, 6]
+                                )    
+                            ),
+                            
+                            # ================================
+                            # TAB 2: 이상 예측
+                            # ================================
+                            ui.nav_panel("공정 이상 탐지	(Process Anomaly Detection)",
+                                ui.layout_columns(
+                                    # TAB 2 [A] 주요 변수의 이상 발생 횟수
+                                    ui.card(
+                                        ui.card_header("[A] 주요 변수의 이상 발생 횟수"),
+                                        ui.output_plot("anomaly_variable_count", height="300px")
+                                    ),
+                                    # TAB 2 [B] 이상 탐지 알림
+                                    ui.card(
+                                        ui.card_header("[B] 이상 탐지 알림"),
+                                        ui.output_ui("anomaly_notifications")
+                                    ),
+                                    col_widths=[6, 6]
+                                ),
+                                ui.layout_columns(
+                                    #TAB 2 [C] 시간에 따른 이상 분석
+                                    ui.card(
+                                        ui.card_header("[C] 시간에 따른 이상 분석"),
+                                        ui.div(
+                                            ui.input_select(
+                                                "anomaly_time_unit", 
+                                                "시간 단위 선택", 
+                                                choices=["1시간", "3시간", "일", "주", "월"], 
+                                                selected="일"
+                                            ),
+                                            class_="mb-3"
+                                        ),
+                                        ui.output_plot("anomaly_time_analysis", height="300px")
+                                    ),
+                                    # [D] SHAP 해석, 변수 기여도 분석
+                                    ui.card(
+                                        ui.card_header("[D] SHAP 변수 기여도 분석"),
+                                        ui.output_table("shap_analysis_table")
+                                    ),
+                                    col_widths=[6, 6]
+                                )
+                            ),
+                            # ================================
+                            # TAB 3: 품질
+                            # ================================
+                    
+                                ui.nav_panel("품질 이상 판별	(Quality Defect Classification)",
+                                    # TAB 3 [A] 
+                                    ui.layout_columns(
+                                        ui.card(
+                                            ui.card_header("[A]"),
+                                            ui.input_date_range(
+                                                "date_range", 
+                                                "📅 기간 선택", 
+                                                start="2019-02-21",  # 데이터 시작일
+                                                end="2019-03-12",    # 데이터 종료일 # 기본값
+                                            ),
+                                            ui.output_plot("defect_rate_plot", height="300px"),
+                    
+                                        ),
+                                        # TAB 3 [B]
+                                        ui.card(
+                                            ui.card_header("[B]"),
+                                            ui.output_ui("current_prediction"),
+                                            ui.output_ui("prediction_log_table")
+                                        )
+                                    ),
+                                    # TAB 3 [C]
+                                    ui.layout_columns(
+                                        ui.card(
+                                            ui.card_header("[C]"),
+                                            ui.input_select(
+                                                "fail_time_unit", 
+                                                "시간 단위 선택", 
+                                                choices=["1시간", "3시간", "일", "주", "월"], 
+                                                selected="일"
+                                            ),
+                                            ui.output_plot("fail_rate_by_time", height="350px")
+                                        ),
+                                        ui.card(
+                                            ui.card_header("[D]"),
+                                        )
+                                    )
+                                ),
+                                ui.nav_spacer(),  # 선택
+                            ui.nav_panel("🔓 로그아웃",  # ✅ 여기 추가!
+                                ui.layout_column_wrap(
+                                    ui.h4("로그아웃 하시겠습니까?"),
+                                    ui.input_action_button("logout_button", "로그아웃", class_="btn btn-danger")
+                                )
+                            ),
+                                title = "LS 기가 펙토리"
+                            )
+                        )
+            
+            
 # ================================
 # 🚀 4. 앱 실행
 # ================================
-app = App(app_ui, server, static_assets=www_path)
+app = App(app_ui, server, static_assets=STATIC_DIR)
