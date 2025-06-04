@@ -374,7 +374,7 @@ def server(input, output, session):
     @render.ui
     def anomaly_alerts():
         try:
-            df = accumulator.get().get_data()
+            df = current_data.get()
             if df.empty:
                 return ui.div("데이터 없음", class_="text-muted")
 
@@ -386,21 +386,15 @@ def server(input, output, session):
             anomaly_score = latest.get('anomaly_score', 0) if latest is not None else 0
             anomaly_icon = "❌" if anomaly_status == "이상" else "✅"
             anomaly_class = "anomaly-card alert alert-danger" if anomaly_status == "이상" else "normal-card alert alert-success"
-            
-            # 불량 예측 카드
-            defect_status = "불량" if hasattr(latest, 'predicted_label') and latest.get('predicted_label', 0) == 1 else "양품"
-            defect_prob = latest.get('predict_proba', 0) if latest is not None else 0
-            defect_icon = "❌" if defect_status == "불량" else "✅"
-            defect_class = "anomaly-card alert alert-danger" if defect_status == "불량" else "normal-card alert alert-success"
-            
+            reg_time = latest.get('registration_time')
             return ui.div(
                 # 이상 탐지 카드
                 ui.div(
                     ui.h6(f"{anomaly_icon} 이상 탐지"),
                     ui.p(f"상태: {anomaly_status}"),
                     ui.p(f"점수: {anomaly_score:.3f}"),
-                    ui.p(f"시각: {datetime.now().strftime('%H:%M:%S')}"),
-                    ui.input_action_button("goto_anomaly", "이상탐지 확인하기", class_="btn btn-sm btn-outline-primary"),
+                    ui.p(f"시각: {reg_time}"),
+                    ui.input_action_button("goto_2page", "이상탐지 확인하기", class_="btn btn-sm btn-outline-primary"),
                     class_=anomaly_class
                 )
             )
@@ -454,6 +448,10 @@ def server(input, output, session):
         except Exception as e:
             print(f"⛔ current_prediction 오류 발생: {e}")
             return ui.div(f"오류: {str(e)}", class_="text-danger")
+    @reactive.effect
+    @reactive.event(input.goto_2page)
+    def go_to_page_3():
+        ui.update_navs("main_nav", "공정 이상 탐지	(Process Anomaly Detection)") 
     
     @reactive.effect
     @reactive.event(input.goto_3page)
