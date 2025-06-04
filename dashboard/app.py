@@ -84,7 +84,8 @@ def server(input, output, session):
         try:
             if not is_streaming.get():
                 return
-            reactive.invalidate_later(2)
+            reactive.invalidate_later(1
+                                      )
             s = streamer.get()
             next_batch = s.get_next_batch(1)
             if next_batch is not None:
@@ -731,34 +732,46 @@ def server(input, output, session):
             df_vis = df_vis.loc[:, ~df_vis.columns.duplicated()]  # 중복 열 제거
             df_vis['datetime'] = pd.to_datetime(df_vis['registration_time'], errors="coerce")
 
-            # 필터링된 범위 적용
+            # 날짜 필터링
             mask = (df_vis['datetime'].dt.date >= pd.to_datetime(start_date).date()) & \
-                   (df_vis['datetime'].dt.date <= pd.to_datetime(end_date).date())
+                (df_vis['datetime'].dt.date <= pd.to_datetime(end_date).date())
             df_filtered = df_vis.loc[mask]
 
             if df_filtered.empty:
                 raise ValueError("선택한 기간 내 데이터가 없습니다.")
 
-            counts = df_filtered['passorfail'].value_counts().to_dict()
+            # ✅ 몰드코드 + 불량 여부별 카운트
+            grouped = df_filtered.groupby(['mold_code', 'passorfail']).size().unstack(fill_value=0)
+            grouped.columns = ['양품', '불량'] if 0 in grouped.columns else ['불량']
+            grouped = grouped.reset_index()
 
-            labels = ['양품', '불량']
-            sizes = [counts.get(0, 0), counts.get(1, 0)]
-            colors = ['#4CAF50', '#F44336']
+            # ✅ 시각화 (stacked bar chart)
+            import numpy as np
+            mold_codes = grouped['mold_code']
+            x = np.arange(len(mold_codes))
+            width = 0.6
 
-            fig, ax = plt.subplots()
-            wedges, _, _ = ax.pie(
-                sizes, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90
-            )
-            ax.axis('equal')
-            ax.set_title(f"{start_date} ~ {end_date} 불량률")
-            ax.legend(wedges, labels, title="예측 결과", loc="upper right", bbox_to_anchor=(1.1, 1))
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.bar(x, grouped.get('양품', [0]*len(grouped)), width, label='양품', color='#4CAF50')
+            ax.bar(x, grouped.get('불량', [0]*len(grouped)), width,
+                bottom=grouped.get('양품', [0]*len(grouped)), label='불량', color='#F44336')
 
+            ax.set_xlabel('몰드 코드')
+            ax.set_ylabel('개수')
+            ax.set_title(f"{start_date} ~ {end_date} 몰드코드별 누적 예측 결과")
+            ax.set_xticks(x)
+            ax.set_xticklabels(mold_codes, rotation=45, ha='right')
+            ax.legend()
+
+            fig.tight_layout()
             return fig
 
         except Exception as e:
+            print(f"[defect_rate_plot] 에러: {e}")
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
+            ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center')
             return fig
+
 
     # ================================
     # TAP 3 [B] - 이상 불량 알림
