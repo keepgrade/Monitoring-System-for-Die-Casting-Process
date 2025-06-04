@@ -8,7 +8,7 @@ from shiny import App, ui, render, reactive
 import pandas as pd
 import matplotlib.pyplot as plt
 from shared import RealTimeStreamer, StreamAccumulator
-from shared import sensor_labels, static_df, streaming_df
+from shared import sensor_labels, static_df, streaming_df, spec_df_all
 import numpy as np
 from datetime import datetime, timedelta
 import matplotlib as mpl
@@ -19,6 +19,8 @@ import plotly.graph_objs as go
 from shinywidgets import render_widget
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import os
+
 
 warnings.filterwarnings('ignore')
 
@@ -30,30 +32,23 @@ selected_cols = [
     'cast_pressure',         # 주조 압력
     'high_section_speed',    # 고속 구간 속도
     'low_section_speed',     # 저속 구간 속도
-    'biscuit_thickness'      # 비스킷 두께
+    'biscuit_thickness',      # 비스킷 두께
+    'mold_code'
 ]
 df_selected = streaming_df[selected_cols].reset_index(drop=True)
 
 
+www_path = os.path.join(os.path.dirname(__file__), "www")
+
 # ================================
-# 🖼️ 2. UI 정의
+# 2. UI 정의
 # ================================
 
 app_ui = ui.page_fluid(
     ui.tags.head(
-        ui.tags.link(
-            href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/journal/bootstrap.min.css",
-            rel="stylesheet"
-        ),
-        ui.tags.style("""
-            .alert-card { border-radius: 10px; margin: 10px 0; }
-            .normal-card { background-color: #d4edda; border-color: #c3e6cb; }
-            .anomaly-card { background-color: #f8d7da; border-color: #f5c6cb; }
-            .log-container { max-height: 300px; overflow-y: auto; }
-            .status-good { color: #28a745; font-weight: bold; }
-            .status-bad { color: #dc3545; font-weight: bold; }
-        """)
-    ), 
+        ui.tags.link(rel="stylesheet", href="./style.css")
+    ),
+    
     ui.page_navbar(
         # ================================
         # TAB 1: 공정 모니터링 overview
@@ -72,29 +67,29 @@ app_ui = ui.page_fluid(
                             )
                         )
                     ),
-                    ui.card_header("📊 [A] 실시간 그래프"),
+                    ui.card_header("[A] 실시간 센서 스트리밍"),
                     ui.output_plot("stream_plot", height="400px")
                 ),
                 # [B] 실시간 값
                 ui.card(
-                    ui.card_header("📈 [B] 실시간 값"),
-                    ui.output_ui("real_time_values")
+                    ui.card_header("[B] 실시간 값"),
+                    ui.output_ui("real_time_values"),
                 ),
                 col_widths=[8, 4]
             ),
             ui.layout_columns(
                 # [C] 실시간 로그
                 ui.card(
-                    ui.card_header("📝 [C] 실시간 로그"),
+                    ui.card_header("[C] 실시간 로그"),
                     ui.div(
-                        ui.h5("📋 실시간 로그 (최근 10건)"),
+                        ui.h5("실시간 로그 (최근 7건)"),
                         ui.output_table("recent_data_table"),
                         ui.output_ui("download_controls")  # 형식 선택 + 다운로드 버튼
                     )
                 ),
                 # [D] 이상 불량 알림 탭
                 ui.card(
-                    ui.card_header("🚨 [D] 이상 불량 알림"),
+                    ui.card_header("[D] 이상 불량 알림"),
                     ui.output_ui("anomaly_alerts")
                 ),
                 col_widths=[6, 6]
@@ -108,12 +103,12 @@ app_ui = ui.page_fluid(
             ui.layout_columns(
                 # TAB 2 [A] 주요 변수의 이상 발생 횟수
                 ui.card(
-                    ui.card_header("📊 [A] 주요 변수의 이상 발생 횟수"),
+                    ui.card_header("[A] 주요 변수의 이상 발생 횟수"),
                     ui.output_plot("anomaly_variable_count", height="300px")
                 ),
                 # TAB 2 [B] 이상 탐지 알림
                 ui.card(
-                    ui.card_header("🔔 [B] 이상 탐지 알림"),
+                    ui.card_header("[B] 이상 탐지 알림"),
                     ui.output_ui("anomaly_notifications")
                 ),
                 col_widths=[6, 6]
@@ -121,7 +116,7 @@ app_ui = ui.page_fluid(
             ui.layout_columns(
                 #TAB 2 [C] 시간에 따른 이상 분석
                 ui.card(
-                    ui.card_header("📈 [C] 시간에 따른 이상 분석"),
+                    ui.card_header("[C] 시간에 따른 이상 분석"),
                     ui.div(
                         ui.input_select(
                             "anomaly_time_unit", 
@@ -135,7 +130,7 @@ app_ui = ui.page_fluid(
                 ),
                 # [D] SHAP 해석, 변수 기여도 분석
                 ui.card(
-                    ui.card_header("🔍 [D] SHAP 변수 기여도 분석"),
+                    ui.card_header("[D] SHAP 변수 기여도 분석"),
                     ui.output_table("shap_analysis_table")
                 ),
                 col_widths=[6, 6]
@@ -183,7 +178,7 @@ app_ui = ui.page_fluid(
                     )
                 )
             ),
-            title = "🚀실시간 스트리밍 대시보드"
+            title = "LS 기가 펙토리"
         )
     )
 
@@ -307,7 +302,7 @@ def server(input, output, session):
             axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             fig.autofmt_xdate()
 
-            fig.suptitle("실시간 센서 스트리밍", fontsize=16, fontweight='bold')
+            # fig.suptitle("실시간 센서 스트리밍", fontsize=16, fontweight='bold')
             fig.tight_layout(rect=[0, 0.03, 1, 0.95])  # suptitle 공간 확보
 
             return fig
@@ -343,8 +338,30 @@ def server(input, output, session):
                 'lower_mold_temp1': '#d62728',
                 # 추가 센서 색상도 여기에
             }
+            sensor_korean_labels = {
+            'molten_temp': '용탕 온도 (℃)',
+            'cast_pressure': '주조 압력 (bar)',
+            'upper_mold_temp1': '상부 금형 온도1 (℃)',
+            'lower_mold_temp1': '하부 금형 온도1 (℃)',
+            'high_section_speed': '고속 구간 속도 (mm/s)',
+            'low_section_speed': '저속 구간 속도 (mm/s)',
+            'biscuit_thickness': '비스킷 두께 (mm)',
+            # 필요시 계속 추가 가능
+            }
 
             cards = []
+
+            # ✅ [추가] mold_code 카드 삽입
+            if 'mold_code' in df.columns:
+                mold_code_val = latest['mold_code']
+                cards.append(
+                    ui.div(
+                        ui.h6("Mold Code"),
+                        ui.h4(str(mold_code_val), class_="fw-bold"),
+                        class_="card p-3 mb-2 border border-info"
+                    )
+                )
+            
             for col in sensor_labels:
                 if col in df.columns:
                     current_val = latest[col]
@@ -355,20 +372,33 @@ def server(input, output, session):
                     # 증감 화살표 및 색상
                     if diff > 0:
                         arrow = "⬆️"
-                        color_class = "text-success"
+                        color_class = "text-muted"
                     elif diff < 0:
                         arrow = "⬇️"
-                        color_class = "text-danger"
+                        color_class = "text-muted"
                     else:
                         arrow = "➡️"
                         color_class = "text-muted"
 
-                    # 경고 테두리
+                    # ================================
+                    # 경고 테두리 적용 (스펙 범위 벗어났을 때)
+                    # ================================
                     warning_class = ""
-                    if col == 'molten_temp' and current_val > 850:
-                        warning_class = "border border-danger"
-                    elif col == 'cast_pressure' and current_val > 200:
-                        warning_class = "border border-danger"
+                    try:
+                        mold_code_val = int(latest['mold_code'])  # mold_code가 문자열일 경우 int 변환 시도
+                        spec_row = spec_df_all[
+                            (spec_df_all["mold_code"] == mold_code_val) &
+                            (spec_df_all["variable"] == col)
+                        ]
+                        if not spec_row.empty:
+                            lower_bound = spec_row["lower"].values[0]
+                            upper_bound = spec_row["upper"].values[0]
+
+                            if current_val < lower_bound or current_val > upper_bound:
+                                warning_class = "border border-danger"
+                    except Exception as e:
+                        print(f"[경고 테두리 판단 오류] {col}: {e}")
+                        # 오류 발생 시 경고 미적용하고 통과
 
                     # 색상 적용
                     custom_color = sensor_colors.get(col, "#000000")
@@ -395,15 +425,34 @@ def server(input, output, session):
     # TAP 1 [C] - 실시간 로그
     # ================================
     @output
-    @render.table
+    @render.ui
     def recent_data_table():
         try:
             df = current_data.get()
             if df.empty:
-                return pd.DataFrame({"상태": ["데이터 없음"]})
-            return df.tail(10).round(2)
+                return ui.HTML("<p class='text-muted'>데이터 없음</p>")
+
+            df = df.tail(7).round(2).copy()
+            rows = []
+
+            # 헤더 행
+            header_cells = [ui.tags.th(col) for col in df.columns]
+            rows.append(ui.tags.tr(*header_cells))
+
+            # 데이터 행
+            for i, row in df.iterrows():
+                is_latest = i == df.index[-1]
+                style = "background-color: #fff7d1;" if is_latest else ""
+                cells = [ui.tags.td(str(val)) for val in row]
+                rows.append(ui.tags.tr(*cells, style=style))
+
+            return ui.tags.table(
+                {"class": "table table-sm table-striped table-bordered", "style": "font-size: 13px;"},
+                *rows
+            )
+
         except Exception as e:
-            return pd.DataFrame({"에러": [str(e)]})
+            return ui.HTML(f"<p class='text-danger'>에러 발생: {str(e)}</p>")
     
 
     # ================================
@@ -424,10 +473,10 @@ def server(input, output, session):
     # TAP 1 [C] - 실시간 선택 다운로드 로직  
     # ================================
     @output
-    @render.download(filename="recent_log")
+    @render.download(filename=lambda: f"recent_log.{input.file_format()}")
     def download_recent_data():
         def writer():
-            df = current_data.get().tail(10).round(2)
+            df = current_data.get().tail(1000).round(2)
             file_format = input.file_format()
 
             if df.empty:
@@ -454,7 +503,7 @@ def server(input, output, session):
                     pdf.savefig(fig, bbox_inches='tight')
                     plt.close(fig)
                 yield buffer.getvalue()
-        return writer
+        return writer()
     # ================================
     # TAP 1 [D] - 이상 불량 알림 
     # ================================
@@ -966,4 +1015,4 @@ def server(input, output, session):
 # ================================
 # 🚀 4. 앱 실행
 # ================================
-app = App(app_ui, server)
+app = App(app_ui, server, static_assets=www_path)
