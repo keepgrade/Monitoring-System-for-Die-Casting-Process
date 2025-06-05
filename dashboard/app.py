@@ -23,7 +23,7 @@ import os
 
 warnings.filterwarnings('ignore')
 
-mold_codes = ['ALL','8412', '8573', '8600', '8722', '8917']
+mold_codes = ['ALL','8412', '8413', '8576', '8722', '8917']
 
 plt.rcParams['font.family'] = 'Malgun Gothic'  # 윈도우
 mpl.rcParams['axes.unicode_minus'] = False  # 마이너스 부호 깨짐 방지
@@ -173,7 +173,7 @@ def server(input, output, session):
                                 ax.axhline(y=lower, color="blue", linestyle="--", linewidth=1.2, label="하한")
 
                         ax.set_ylabel(col)
-                        ax.legend()
+                        ax.legend(loc="upper right")  # 또는 "lower left", "center", (x, y) 튜플도 가능
                         ax.grid(True)
 
                     axs[-1].set_xlabel("월-일 시:분")
@@ -210,16 +210,6 @@ def server(input, output, session):
                 'cast_pressure': '#ff7f0e',
                 'upper_mold_temp1': '#2ca02c'
                 # 추가 센서 색상도 여기에
-            }
-            sensor_korean_labels = {
-            'molten_temp': '용탕 온도 (℃)',
-            'cast_pressure': '주조 압력 (bar)',
-            'upper_mold_temp1': '상부 금형 온도1 (℃)',
-            'lower_mold_temp1': '하부 금형 온도1 (℃)',
-            'high_section_speed': '고속 구간 속도 (mm/s)',
-            'low_section_speed': '저속 구간 속도 (mm/s)',
-            'biscuit_thickness': '비스킷 두께 (mm)',
-            # 필요시 계속 추가 가능
             }
 
             cards = []
@@ -736,7 +726,7 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.clear_alerts2)
     def clear_alert_logs():
-        alert_logs.set([])               # 기존 경고/심각 로그 초기화
+        #alert_logs.set([])               # 기존 경고/심각 로그 초기화
         anomaly_detail_logs.set([])      # ✅ SHAP 상세 로그도 함께 초기화
 
     # ================================
