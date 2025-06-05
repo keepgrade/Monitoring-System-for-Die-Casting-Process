@@ -1030,7 +1030,7 @@ def server(input, output, session):
                                     ui.card(
                                         ui.card_header("[C] 실시간 로그"),
                                         ui.div(
-                                            ui.h5("실시간 로그 (최근 7건)"),
+                                            ui.h5("실시간 로그 (최근 10건)"),
                                             ui.output_table("recent_data_table"),
                                             ui.output_ui("download_controls")  # 형식 선택 + 다운로드 버튼
                                         )
