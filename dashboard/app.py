@@ -394,8 +394,20 @@ def server(input, output, session):
             df = current_data.get()
             if df.empty:
                 return ui.HTML("<p class='text-muted'>데이터 없음</p>")
+            cols = [
+                'mold_code',
+                'registration_time',
+                'molten_temp',
+                'cast_pressure',
+                'high_section_speed',
+                'low_section_speed',
+                'biscuit_thickness',
+                'passorfail',
+                'is_anomaly',
+                'anomaly_level'
+            ]
 
-            df = df.round(2).copy()  # 전체 데이터 출력
+            df = df[cols].round(2)  # 전체 데이터 출력
             df = df.iloc[::-1]       # 최근 데이터가 위로 오도록 역순 정렬
 
             rows = []
@@ -581,7 +593,7 @@ def server(input, output, session):
         )
         return ui.div(count_badge, class_="log-container")
     # ================================
-    # TAB 2 [C]: 
+    # TAB 2 [A] 단위 시간 당 불량 관리도
     # ================================
     @output
     @render.plot
@@ -948,7 +960,7 @@ def server(input, output, session):
         style="max-height: 200px; overflow-y: auto;"  # 스크롤 설정
     )
 # ================================
-    # TAP 3 [C] - 이상 불량 알림 
+    # TAP 3 [A] 단위 시간 당 불량 관리도
 # ================================ 
     @output
     @render.plot
@@ -958,11 +970,9 @@ def server(input, output, session):
             if df.empty or 'passorfail' not in df.columns:
                 raise ValueError("데이터 없음")
 
-            # datetime 생성
             if 'datetime' not in df.columns:
                 df['datetime'] = pd.to_datetime(df['registration_time'], errors='coerce')
 
-            # 시간 단위 선택
             unit = input.fail_time_unit()
             if unit == "1시간":
                 df['time_group'] = df['datetime'].dt.floor('H')
@@ -975,24 +985,42 @@ def server(input, output, session):
             elif unit == "월":
                 df['time_group'] = df['datetime'].dt.to_period('M')
 
-            # 불량률 계산
+            # 그룹별 전체/불량 개수
             total_counts = df.groupby('time_group').size()
             fail_counts = df[df['passorfail'] == 1].groupby('time_group').size()
             rate = (fail_counts / total_counts).fillna(0)
 
-            # ⛔ 기존 코드에서는 전체 rate 사용
-            # ✅ 수정: 가장 최근 20개만 사용
-            rate = rate.sort_index().iloc[-20:]  # 최근 시간 기준 정렬 후 20개 선택
+            # 최근 20개
+            rate = rate.sort_index().iloc[-20:]
+            total_counts = total_counts.sort_index().loc[rate.index]
+
+            # 평균 불량률
+            p_bar = rate.mean()
+
+            # 관리 상/하한선 계산
+            ucl = []
+            lcl = []
+            for n in total_counts:
+                std = (p_bar * (1 - p_bar) / n) ** 0.5
+                ucl.append(min(1.0, p_bar + 3 * std))
+                lcl.append(max(0.0, p_bar - 3 * std))
 
             labels = rate.index.astype(str)
             values = rate.values
 
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(labels, values, marker='o', linestyle='-')
-            ax.set_title(f"시간 단위별 불량률 분석 ({unit}) - 최근 20개")
+            ax.plot(labels, values, marker='o', label="불량률", color='blue')
+            ax.plot(labels, [p_bar] * len(labels), linestyle='--', label="평균", color='gray')
+            ax.plot(labels, ucl, linestyle='--', label="UCL", color='red')
+            ax.plot(labels, lcl, linestyle='--', label="LCL", color='red')
+            ax.fill_between(labels, lcl, ucl, color='red', alpha=0.1)
+
+
+            ax.set_title(f"관리도 기반 불량률 분석 ({unit}) - 최근 20개")
             ax.set_xlabel("시간 단위")
             ax.set_ylabel("불량률")
             ax.set_ylim(0, 1)
+            ax.legend()
             ax.grid(True, alpha=0.3)
             plt.xticks(rotation=45)
             plt.tight_layout()
@@ -1002,6 +1030,7 @@ def server(input, output, session):
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center')
             return fig
+
 
 # ================================
 # TAP 3 [D]
@@ -1160,15 +1189,14 @@ def server(input, output, session):
                                     # TAB 3 [A] 
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[A] 몰드 코드별 품질 불량 횟수"),
-                                            ui.input_date_range(
-                                                "date_range", 
-                                                "📅 기간 선택", 
-                                                start="2019-02-21",  # 데이터 시작일
-                                                end="2019-03-12",    # 데이터 종료일 # 기본값
+                                            ui.card_header("[A] 단위 시간 당 불량 관리도"),
+                                            ui.input_select(
+                                                "fail_time_unit", 
+                                                "시간 단위 선택", 
+                                                choices=["1시간", "3시간", "일", "주", "월"], 
+                                                selected="일"
                                             ),
-                                            ui.output_plot("defect_rate_plot", height="300px"),
-                    
+                                            ui.output_plot("fail_rate_by_time", height="350px"),
                                         ),
                                         # TAB 3 [B]
                                         ui.card(
@@ -1180,14 +1208,14 @@ def server(input, output, session):
                                     # TAB 3 [C]
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[C] 단위 시간 당 불량 관리도"),
-                                            ui.input_select(
-                                                "fail_time_unit", 
-                                                "시간 단위 선택", 
-                                                choices=["1시간", "3시간", "일", "주", "월"], 
-                                                selected="일"
+                                            ui.card_header("[C] 몰드 코드별 품질 불량 횟수"),
+                                            ui.input_date_range(
+                                                "date_range", 
+                                                "📅 기간 선택", 
+                                                start="2019-02-21",  # 데이터 시작일
+                                                end="2019-03-12",    # 데이터 종료일 # 기본값
                                             ),
-                                            ui.output_plot("fail_rate_by_time", height="350px")
+                                            ui.output_plot("defect_rate_plot", height="300px")
                                         ),
                                         ui.card(
                                             ui.card_header("[D]"),
