@@ -381,24 +381,18 @@ def server(input, output, session):
             # 최신 실시간 데이터 가져오기
             latest = df.iloc[-1]
 
-            # 이상 여부 판단 (-1: 이상 / 1: 정상)
-            try:
-                anomaly_val_raw = latest.get('is_anomaly', 1)
-                anomaly_val = int(float(anomaly_val_raw))
-            except:
-                anomaly_val = 1  # 파싱 실패 시 정상
+            # anomaly_level 기준으로 판단
+            anomaly_score = latest.get('anomaly_level', "정상")
+            icon = "✅" if anomaly_score == "정상" else "❌"
+            color_class = "alert alert-danger" if anomaly_score in ["경도", "심각"] else "alert alert-success"
 
-            anomaly_status = "이상" if anomaly_val == -1 else "정상"
-            anomaly_icon = "❌" if anomaly_val == -1 else "✅"
-            color_class = "alert alert-danger" if anomaly_val == -1 else "alert alert-success"
-            anomaly_score = latest.get('anomaly_level', 0)
             # 시각 정리
             reg_time = latest.get('registration_time')
             try:
                 reg_time = pd.to_datetime(reg_time).strftime("%Y-%m-%d %H:%M:%S")
             except:
                 reg_time = str(reg_time)
-            icon = "✅" if anomaly_score == "정상" else "❌"
+
             return ui.div(
                 ui.div(
                     ui.h6(f"🧾 이상 탐지"),
@@ -468,6 +462,7 @@ def server(input, output, session):
     @reactive.event(input.goto_3page)
     def go_to_page_3():
         ui.update_navs("main_nav", "품질 이상 판별   (Quality Defect Classification)") 
+
 
 
     # ================================
@@ -628,7 +623,10 @@ def server(input, output, session):
 
             # ✅ 불량률 및 중심선 계산
             p_i = x_i / n_i
-            p_hat = x_i.sum() / n_i.sum()
+            #p_hat = x_i.sum() / n_i.sum()
+            p_hat = 0.045    
+
+            # p_hat train set  / stream 필요없이  전체를 가지고 추정을 한다. 
 
             # ✅ 관리 한계선 계산
             std_err = np.sqrt(p_hat * (1 - p_hat) / n_i)
@@ -1160,7 +1158,7 @@ def server(input, output, session):
                             # TAB 3: 품질
                             # ================================
                     
-                                ui.nav_panel("품질 이상 판별   (Quality Defect Classification)",
+                                ui.nav_panel("품질 불량 판별   (Quality Defect Classification)",
                                     # TAB 3 [A] 
                                     ui.layout_columns(
                                         ui.card(
@@ -1207,7 +1205,7 @@ def server(input, output, session):
                                 )
                             ),
                                 id="main_nav",
-                                title = "LS 기가 펙토리"
+                                title = "LS 기가 팩토리"
                             )
                         )
             
