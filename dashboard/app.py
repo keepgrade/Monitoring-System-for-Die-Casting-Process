@@ -189,7 +189,7 @@ def server(input, output, session):
 
             return ui.div(
                 ui.div(
-                    ui.h6("🧾 판정 결과"),
+                    ui.h6("🧾 품질 불량 판정 결과"),
                     ui.h4(f"{icon} {result}", class_="fw-bold"),
                     class_="mb-2"
                 ),
@@ -210,7 +210,7 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.goto_3page)
     def go_to_page_3():
-        ui.update_navs("main_nav", "품질 이상 판별   (Quality Defect Classification)") 
+        ui.update_navs("main_nav", "품질 불량 판별   (Quality Defect Classification)") 
     # ================================
     # TAP 1 [A] - 스트리밍 표시
     # ================================
@@ -1156,11 +1156,11 @@ def server(input, output, session):
                             # TAB 3: 품질
                             # ================================
                     
-                                ui.nav_panel("품질 이상 판별   (Quality Defect Classification)",
+                                ui.nav_panel("품질 불량 판별   (Quality Defect Classification)",
                                     # TAB 3 [A] 
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[A]"),
+                                            ui.card_header("[A] 몰드 코드별 품질 불량 횟수"),
                                             ui.input_date_range(
                                                 "date_range", 
                                                 "📅 기간 선택", 
@@ -1172,7 +1172,7 @@ def server(input, output, session):
                                         ),
                                         # TAB 3 [B]
                                         ui.card(
-                                            ui.card_header("[B]"),
+                                            ui.card_header("[B] 품질 불량 판별"),
                                             ui.output_ui("current_prediction"),
                                             ui.output_ui("prediction_log_table")
                                         )
@@ -1180,7 +1180,7 @@ def server(input, output, session):
                                     # TAB 3 [C]
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[C]"),
+                                            ui.card_header("[C] 단위 시간 당 불량 관리도"),
                                             ui.input_select(
                                                 "fail_time_unit", 
                                                 "시간 단위 선택", 
