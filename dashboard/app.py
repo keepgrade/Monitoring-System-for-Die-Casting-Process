@@ -23,6 +23,8 @@ import os
 
 warnings.filterwarnings('ignore')
 
+mold_codes = ['ALL','8412', '8573', '8600', '8722', '8917']
+
 plt.rcParams['font.family'] = 'Malgun Gothic'  # 윈도우
 mpl.rcParams['axes.unicode_minus'] = False  # 마이너스 부호 깨짐 방지
 
@@ -56,7 +58,7 @@ def server(input, output, session):
 
 
     prediction_table_logs = reactive.Value([])  # TAB 3. [B] 로그 테이블용
-    latest_logged_time = reactive.Value(None)
+    anomaly_detail_logs = reactive.Value([])
     # 로그인 상태 저장
     login_status = reactive.Value(False)
     
@@ -122,62 +124,58 @@ def server(input, output, session):
     # ================================
     # TAP 1 [A] - 스트리밍 표시
     # ================================
-    @output
-    @render.plot
-    def stream_plot():
-        try:
-            df = current_data.get()
-            if df.empty:
-                fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "스트리밍을 시작하세요", ha='center', va='center', fontsize=14)
-                ax.set_xticks([])
-                ax.set_yticks([])
+    for code in ["ALL"] + mold_codes:
+        @output(id=f"stream_plot_{code}")
+        @render.plot
+        def _plot(code=code):  # ✅ 클로저 캡처 주의!
+            try:
+                df = current_data.get()
+                if df.empty:
+                    raise ValueError("데이터가 없습니다. 작업을 시작해주세요.")
+
+                # ✅ registration_time 파싱
+                df["registration_time"] = pd.to_datetime(df["registration_time"], errors="coerce")
+
+                # ✅ mold_code 필터링 (ALL이면 전체)
+                if code != "ALL":
+                    df = df[df["mold_code"] == int(code)]
+
+                # ✅ 최근 30분 + tail(30)
+                t_latest = df["registration_time"].max()
+                df = df[df["registration_time"] >= t_latest - pd.Timedelta(minutes=30)]
+                df = df.tail(30)
+
+                # ✅ 시각화할 센서 컬럼
+                cols_to_plot = [col for col in selected_cols if col in df.columns][:3]
+                if not cols_to_plot:
+                    raise ValueError("시각화할 센서 컬럼이 없습니다.")
+
+                colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+                fig, axs = plt.subplots(nrows=len(cols_to_plot), figsize=(10, 3.5 * len(cols_to_plot)), sharex=True)
+                if len(cols_to_plot) == 1:
+                    axs = [axs]
+
+                for i, col in enumerate(cols_to_plot):
+                    axs[i].plot(df["registration_time"], df[col],
+                                label=col,
+                                color=colors[i % len(colors)],
+                                linewidth=2,
+                                marker='o', markersize=5)
+                    axs[i].legend()
+                    axs[i].grid(True)
+
+                axs[-1].set_xlabel("월-일 시:분")
+                axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
+                fig.autofmt_xdate()
+                fig.tight_layout()
                 return fig
 
-            if "registration_time" not in df.columns:
-                raise ValueError("'registration_time' 컬럼이 없습니다.")
-            df["registration_time"] = pd.to_datetime(df["registration_time"])
-
-            # ✅ 30분 초과한 데이터 제거
-            t_latest = df["registration_time"].max()
-            df = df[df["registration_time"] >= t_latest - pd.Timedelta(minutes=30)]
-            df=df.tail(20)
-
-            # ✅ 선택된 컬럼 필터링
-            cols_to_plot = [col for col in selected_cols if col in df.columns][:3]
-            if not cols_to_plot:
-                raise ValueError("선택된 컬럼이 없습니다.")
-
-            colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
-            fig, axs = plt.subplots(nrows=len(cols_to_plot), ncols=1,
-                                    figsize=(10, 3.5 * len(cols_to_plot)), sharex=True)
-
-            if len(cols_to_plot) == 1:
-                axs = [axs]
-
-            for i, col in enumerate(cols_to_plot):
-                ax = axs[i]
-                ax.plot(df["registration_time"], df[col],
-                        label=col,
-                        color=colors[i % len(colors)],
-                        linewidth=2,
-                        marker='o', markersize=5)
-
-            axs[-1].set_xlabel("월-일 시:분", fontsize=11)
-            axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
-            fig.autofmt_xdate()
-            fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-
-            return fig
-
-        except Exception as e:
-            print("⛔ stream_plot 오류:", e)
-            fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"❌ 에러 발생:\n{str(e)}", ha='center', va='center',
-                    fontsize=12, color='red')
-            ax.set_xticks([])
-            ax.set_yticks([])
-            return fig
+            except Exception as e:
+                print(f"⛔ stream_plot_{code} 오류:", e)
+                fig, ax = plt.subplots()
+                ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha="center", va="center", fontsize=12, color='red')
+                ax.axis("off")
+                return fig
 
 
     # ================================
@@ -543,12 +541,13 @@ def server(input, output, session):
         if level not in ["경도", "심각"]:
             return  # 정상은 무시
 
-        logs = alert_logs.get()
+        logs = alert_logs.get() or []
         logs.append({
             "time": pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S"),
             "level": level
         })
 
+        alert_logs.set(logs[-10:])
 
     @reactive.effect
     @reactive.event(input.clear_alerts)
@@ -563,7 +562,6 @@ def server(input, output, session):
         # level별 필터링 (없어도 0으로 반환되도록)
         mild_logs = [log for log in logs if log.get("level") == "경도"]
         severe_logs = [log for log in logs if log.get("level") == "심각"]
-    
         count_badge = ui.div(
             ui.HTML(f"<span style='margin-right:10px;'>🟠 <b>경도</b>: {len(mild_logs)}</span> | "
                     f"<span style='margin-left:10px;'>🔴 <b>심각</b>: {len(severe_logs)}</span>"),
@@ -584,7 +582,7 @@ def server(input, output, session):
             )
             for log in reversed(logs)
         ]
-    
+        
         return ui.div(count_badge, *entries, class_="log-container")
     # ================================
     # TAB 2 [C]: 
@@ -667,6 +665,67 @@ def server(input, output, session):
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', va='center', color='red')
             return fig
+        
+    # ================================
+    # TAB 2 - [D] 
+    # ================================
+    @reactive.effect
+    @reactive.event(current_data)
+    def update_anomaly_details():
+        df = current_data.get()
+        if df.empty:
+            return
+
+        latest = df.iloc[-1]
+        level = latest.get("anomaly_level", "정상")
+
+        if level not in ["경도", "심각"]:
+            return
+
+        logs = anomaly_detail_logs.get()
+
+        # 전체 컬럼 값 저장 (dict로 변환)
+        row_data = latest.to_dict()
+        row_data["level"] = level
+        row_data["time"] = pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S")
+
+        logs.append(row_data)
+        anomaly_detail_logs.set(logs)
+        
+    
+    @output
+    @render.ui
+    def anomaly_detail_table():
+        logs = anomaly_detail_logs.get()
+        if not logs:
+            return ui.div("⚠️ 이상치 상세 로그 없음", class_="text-muted")
+
+        rows = []
+
+        for i, row in enumerate(reversed(logs), 1):
+            details = [
+                f"<b>{k}</b>: {v}" for k, v in row.items()
+                if k not in ["level", "time"]
+            ]
+            level_color = "🔴" if row["level"] == "심각" else "🟠"
+            rows.append(
+                ui.div(
+                    ui.HTML(
+                        f"{level_color} <b>{row['level']}</b> | 🕒 {row['time']}<br>"
+                        + "<br>".join(details)
+                    ),
+                    class_="border rounded p-2 mb-2",
+                    style="background-color: #fffdf5;" if row["level"] == "경도" else "background-color: #fff5f5;"
+                )
+            )
+
+        return ui.div(*rows, class_="log-container", style="max-height: 600px; overflow-y: auto;")
+
+    @reactive.effect
+    @reactive.event(input.clear_alerts2)
+    def clear_alert_logs():
+        alert_logs.set([])               # 기존 경고/심각 로그 초기화
+        anomaly_detail_logs.set([])      # ✅ SHAP 상세 로그도 함께 초기화
 
     # ================================
     # TAB 3 - [A] : 품질 분석
@@ -1016,7 +1075,15 @@ def server(input, output, session):
                                             )
                                         ),
                                         ui.card_header("[A] 실시간 센서 스트리밍"),
-                                        ui.output_plot("stream_plot", height="400px")
+                                        ui.navset_tab(
+                                            *[
+                                                ui.nav_panel(
+                                                    f"몰드코드 {code}",
+                                                    ui.output_plot(f"stream_plot_{code}", height="400px")
+                                                )
+                                                for code in mold_codes
+                                            ]
+                                        )
                                     ),
                                     # [B] 실시간 값
                                     ui.card(
@@ -1078,10 +1145,11 @@ def server(input, output, session):
                                         ),
                                         ui.output_plot("anomaly_p_chart", height="300px")
                                     ),
-                                    # [D] SHAP 해석, 변수 기여도 분석
+                # [D] SHAP 해석, 변수 기여도 분석
                                     ui.card(
-                                        ui.card_header("[D] SHAP 변수 기여도 분석"),
-                                        ui.output_table("shap_analysis_table")
+                                        ui.card_header("[D] 이상치 탐지 알림 상세"),
+                                        ui.output_ui("anomaly_detail_table"),
+                                        ui.input_action_button("clear_alerts2", "🔔 알림 확인 (초기화)", class_="btn btn-sm btn-outline-secondary mb-2")
                                     ),
                                     col_widths=[6, 6]
                                 )
