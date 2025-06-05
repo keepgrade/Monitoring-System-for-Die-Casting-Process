@@ -8,7 +8,7 @@ from shiny import App, ui, render, reactive
 import pandas as pd
 import matplotlib.pyplot as plt
 from shared import RealTimeStreamer, StreamAccumulator
-from shared import sensor_labels, static_df, streaming_df, spec_df_all
+from shared import sensor_labels, static_df, streaming_df, spec_df_all, get_weather
 import numpy as np
 from datetime import datetime, timedelta
 import matplotlib as mpl
@@ -20,6 +20,16 @@ from shinywidgets import render_widget
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import os
+
+from pathlib import Path
+import matplotlib.font_manager as fm
+
+# 앱 디렉터리 설정
+app_dir = Path(__file__).parent
+
+# 한글 폰트 설정: MaruBuri-Regular.ttf 직접 로드
+font_path = app_dir / "MaruBuri-Regular.ttf"
+font_prop = fm.FontProperties(fname=font_path)
 
 warnings.filterwarnings('ignore')
 
@@ -146,7 +156,7 @@ def server(input, output, session):
 
             return ui.div(
                 ui.div(
-                    ui.h6(f"🧾 이상 탐지"),
+                    ui.h6(f"🧾 실시간 공정 이상 탐지"),
                     ui.h4(f"{icon} {anomaly_score}", class_="fw-bold"),
                     # ui.h6("🕒 판정 시간"),
                     # ui.p(reg_time),
@@ -189,7 +199,7 @@ def server(input, output, session):
 
             return ui.div(
                 ui.div(
-                    ui.h6("🧾 품질 불량 판정 결과"),
+                    ui.h6("🧾 실시간 품질 불량 판정"),
                     ui.h4(f"{icon} {result}", class_="fw-bold"),
                     class_="mb-2"
                 ),
@@ -211,6 +221,47 @@ def server(input, output, session):
     @reactive.event(input.goto_3page)
     def go_to_page_3():
         ui.update_navs("main_nav", "품질 불량 판별   (Quality Defect Classification)") 
+
+
+    @output
+    @render.ui
+    def current_weather():
+        try:
+            df = current_data.get()
+            if df.empty:
+                return ui.card(
+                    ui.div("📡 센서 데이터 없음 · 날씨 확인 불가", class_="p-1 bg-light shadow-sm rounded h-100")
+                )
+
+            # 최신 데이터의 시간 정보
+            latest = df.iloc[-1]
+            reg_time = latest.get("registration_time")
+            if reg_time is None:
+                return ui.card(
+                    ui.div("📡 수집된 시간 정보 없음", class_="p-1 bg-light shadow-sm rounded h-100")
+                )
+
+            dt = pd.to_datetime(reg_time)
+            date_str = dt.strftime("%Y-%m-%d")
+            time_str = dt.strftime("%H:%M")
+
+            # ✅ 날씨 문자열 반환 (예: "☁️ Seoul · 흐림 · 22℃ · 습도 40%")
+            weather_info = get_weather()
+            print("✅ get_weather():", weather_info)  # 디버깅용
+
+            # ✅ 반드시 문자열 형태로 넣기
+            return ui.card(
+                ui.div([
+                    ui.p(f"📅 {date_str} · ⏰ {time_str}", class_="p-1 bg-light shadow-sm rounded h-100"),
+                    ui.p(weather_info, class_="fw-bold fs-5")
+                ], class_="p-3")
+            )
+
+        except Exception as e:
+            return ui.card(
+                ui.div(f"❌ 날씨 표시 오류: {str(e)}", class_="p-1 bg-light shadow-sm rounded h-100")
+            )
+                    
     # ================================
     # TAP 1 [A] - 스트리밍 표시
     # ================================
@@ -250,6 +301,7 @@ def server(input, output, session):
                                 color=colors[i % len(colors)],
                                 linewidth=2,
                                 marker='o', markersize=5)
+                        
 
                         # ✅ 상한/하한선 표시 (단, code != "ALL"일 때만)
                         if code != "ALL":
@@ -528,7 +580,7 @@ def server(input, output, session):
 
             fig, ax = plt.subplots(figsize=(10, 6))
             bars = ax.bar(counts.keys(), counts.values(), color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7'])
-            ax.set_title("주요 변수의 이상 발생 횟수 (SHAP 기반)")
+            ax.set_title("주요 변수의 이상 발생 횟수 (SHAP 기반)",fontproperties=font_prop)
             ax.set_xlabel("변수명")
             ax.set_ylabel("이상 발생 횟수")
             
@@ -658,6 +710,13 @@ def server(input, output, session):
             ax.plot(df_plot.index, df_plot["LCL"], linestyle='--', color='red', label="LCL")
             ax.plot(df_plot.index, df_plot["Center"], linestyle=':', color='black', label="Center Line")
             ax.fill_between(df_plot.index, df_plot["LCL"], df_plot["UCL"], color='red', alpha=0.1)
+
+            # ✅ y축 범위 설정 (상/하한보다 여유 있게 보기 위해)
+            min_y = min(df_plot["LCL"].min(), df_plot["DefectiveRate"].min())
+            max_y = max(df_plot["UCL"].max(), df_plot["DefectiveRate"].max())
+            y_margin = (max_y - min_y) * 0.1  # 여유 마진 10%
+
+            ax.set_ylim(min_y - y_margin, max_y + y_margin)
 
             # ✅ x축 설정
             ax.set_xticks(df_plot.index)
@@ -1100,32 +1159,40 @@ def server(input, output, session):
             )
         ),
         ui.div(
-            ui.div(ui.output_ui("anomaly_alerts"), class_="me-2 flex-fill"),
-            ui.div(ui.output_ui("current_prediction2"), class_="flex-fill"),
-            class_="d-flex justify-content-end",  # 오른쪽 정렬 + 가로 배치
-            style="font-size: 13px;"
+            ui.div(ui.output_ui("anomaly_alerts"), class_="flex-fill", style="min-width: 0;"),
+            ui.div(ui.output_ui("current_prediction2"), class_="flex-fill", style="min-width: 0;"),
+            ui.div(ui.output_ui("current_weather"), class_="flex-fill", style="min-width: 0;"),
+            class_="d-flex gap-3 align-items-stretch",
+            style="width: 100%;"
         ),
                                 ui.layout_columns(
                                     # [A] 실시간 그래프
                                     ui.card(
-                                          
-                                        ui.card_header("[A] 실시간 센서 스트리밍"),
-                                        ui.navset_tab(
-                                            *[
-                                                ui.nav_panel(
-                                                    f"몰드코드 {code}",
-                                                    ui.output_plot(f"stream_plot_{code}", height="400px")
-                                                )
-                                                for code in mold_codes
-                                            ]
-                                        )
+                                    ui.card_header("[A] 실시간 센서 스트리밍"),
+                                        ui.div(
+                                            # 왼쪽: 탭 그래프
+                                            ui.div(
+                                                ui.navset_tab(
+                                                    *[
+                                                        ui.nav_panel(
+                                                            f"몰드코드 {code}",
+                                                            ui.output_plot(f"stream_plot_{code}", height="400px")
+                                                        )
+                                                        for code in mold_codes
+                                                    ]
+                                                ),
+                                                class_="flex-fill me-3"  # 오른쪽 여백
+                                            ),
+                                            # 오른쪽: 실시간 값
+                                            ui.div(
+                                                ui.output_ui("real_time_values"),
+                                                class_="flex-fill"
+                                            ),
+                                            class_="d-flex align-items-start"  # 가로 정렬
+                                        ),
+                                        class_="p-3"
                                     ),
-                                    # [B] 실시간 값
-                                    ui.card(
-                                        ui.card_header("[B] 실시간 값"),
-                                        ui.output_ui("real_time_values"),
-                                    ),
-                                    col_widths=[8, 4]
+                                    
                                 ),
                                 # [C] 실시간 로그
                                 ui.card(
@@ -1218,6 +1285,7 @@ def server(input, output, session):
                                             ui.output_plot("defect_rate_plot", height="300px")
                                         ),
                                         ui.card(
+                                            # TAB 3 [D]
                                             ui.card_header("[D]"),
                                             
                                         )
