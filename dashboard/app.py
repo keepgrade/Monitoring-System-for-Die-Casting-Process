@@ -125,57 +125,69 @@ def server(input, output, session):
     # TAP 1 [A] - 스트리밍 표시
     # ================================
     for code in ["ALL"] + mold_codes:
-        @output(id=f"stream_plot_{code}")
-        @render.plot
-        def _plot(code=code):  # ✅ 클로저 캡처 주의!
-            try:
-                df = current_data.get()
-                if df.empty:
-                    raise ValueError("데이터가 없습니다. 작업을 시작해주세요.")
+            @output(id=f"stream_plot_{code}")
+            @render.plot
+            def _plot(code=code):  # ✅ 클로저 캡처
+                try:
+                    df = current_data.get()
+                    if df.empty:
+                        raise ValueError("데이터가 없습니다. 작업을 시작해주세요.")
 
-                # ✅ registration_time 파싱
-                df["registration_time"] = pd.to_datetime(df["registration_time"], errors="coerce")
+                    df["registration_time"] = pd.to_datetime(df["registration_time"], errors="coerce")
 
-                # ✅ mold_code 필터링 (ALL이면 전체)
-                if code != "ALL":
-                    df = df[df["mold_code"] == int(code)]
+                    # ✅ mold_code 필터링 (ALL이면 전체)
+                    if code != "ALL":
+                        df = df[df["mold_code"] == int(code)]
 
-                # ✅ 최근 30분 + tail(30)
-                t_latest = df["registration_time"].max()
-                df = df[df["registration_time"] >= t_latest - pd.Timedelta(minutes=30)]
-                df = df.tail(30)
+                    # ✅ 최근 30분 + tail(30)
+                    t_latest = df["registration_time"].max()
+                    df = df[df["registration_time"] >= t_latest - pd.Timedelta(minutes=30)]
+                    df = df.tail(30)
 
-                # ✅ 시각화할 센서 컬럼
-                cols_to_plot = [col for col in selected_cols if col in df.columns][:3]
-                if not cols_to_plot:
-                    raise ValueError("시각화할 센서 컬럼이 없습니다.")
+                    cols_to_plot = [col for col in selected_cols if col in df.columns][:3]
+                    if not cols_to_plot:
+                        raise ValueError("시각화할 센서 컬럼이 없습니다.")
 
-                colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
-                fig, axs = plt.subplots(nrows=len(cols_to_plot), figsize=(10, 3.5 * len(cols_to_plot)), sharex=True)
-                if len(cols_to_plot) == 1:
-                    axs = [axs]
+                    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+                    fig, axs = plt.subplots(nrows=len(cols_to_plot), figsize=(10, 3.5 * len(cols_to_plot)), sharex=True)
+                    if len(cols_to_plot) == 1:
+                        axs = [axs]
 
-                for i, col in enumerate(cols_to_plot):
-                    axs[i].plot(df["registration_time"], df[col],
+                    for i, col in enumerate(cols_to_plot):
+                        ax = axs[i]
+                        ax.plot(df["registration_time"], df[col],
                                 label=col,
                                 color=colors[i % len(colors)],
                                 linewidth=2,
                                 marker='o', markersize=5)
-                    axs[i].legend()
-                    axs[i].grid(True)
 
-                axs[-1].set_xlabel("월-일 시:분")
-                axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
-                fig.autofmt_xdate()
-                fig.tight_layout()
-                return fig
+                        # ✅ 상한/하한선 표시 (단, code != "ALL"일 때만)
+                        if code != "ALL":
+                            spec_row = spec_df_all[
+                                (spec_df_all["mold_code"] == int(code)) & (spec_df_all["variable"] == col)
+                            ]
+                            if not spec_row.empty:
+                                upper = spec_row["upper"].values[0]
+                                lower = spec_row["lower"].values[0]
+                                ax.axhline(y=upper, color="red", linestyle="--", linewidth=1.2, label="상한")
+                                ax.axhline(y=lower, color="blue", linestyle="--", linewidth=1.2, label="하한")
 
-            except Exception as e:
-                print(f"⛔ stream_plot_{code} 오류:", e)
-                fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha="center", va="center", fontsize=12, color='red')
-                ax.axis("off")
-                return fig
+                        ax.set_ylabel(col)
+                        ax.legend()
+                        ax.grid(True)
+
+                    axs[-1].set_xlabel("월-일 시:분")
+                    axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
+                    fig.autofmt_xdate()
+                    fig.tight_layout()
+                    return fig
+
+                except Exception as e:
+                    print(f"⛔ stream_plot_{code} 오류:", e)
+                    fig, ax = plt.subplots()
+                    ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha="center", va="center", fontsize=12, color='red')
+                    ax.axis("off")
+                    return fig
 
 
     # ================================
@@ -682,7 +694,7 @@ def server(input, output, session):
         if level not in ["경도", "심각"]:
             return
 
-        logs = anomaly_detail_logs.get()
+        logs = anomaly_detail_logs.get() or []
 
         # 전체 컬럼 값 저장 (dict로 변환)
         row_data = latest.to_dict()
