@@ -59,6 +59,8 @@ def assign_anomaly_level(df):
     score = df['anomaly_score']
     cut_2 = np.nanpercentile(score, 2)
     cut_5 = np.nanpercentile(score, 5)
+    print(f"✅ 2% 기준 (심각): {cut_2:.5f}")
+    print(f"✅ 5% 기준 (경도): {cut_5:.5f}")
     cond_serious = score <= cut_2
     cond_mild = (score > cut_2) & (score <= cut_5)
     anomaly_level = np.where(cond_serious, '심각', np.where(cond_mild, '경도', '정상'))
