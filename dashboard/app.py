@@ -34,6 +34,11 @@ app_dir = Path(__file__).parent
 model_pipe = joblib.load(Path(__file__).parent / "www" / "model_pipe.pkl")
 shap_explainer = shap.TreeExplainer(model_pipe.named_steps["classifier"])
 
+model = joblib.load(Path(__file__).parent / "www" / "model_xgb.pkl")
+
+model_iso_path = Path(__file__).parent / "www" / "model_iso.pkl"
+with open(model_iso_path, "rb") as f:
+    model_iso = pickle.load(f)
 
 # model = joblib.load(Path(__file__).parent / "www" / "model.pkl")
 # 앱 디렉터리 설정
@@ -169,13 +174,37 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("데이터 없음", class_="text-muted")
+                return ui.div("📭 실시간 데이터가 아직 수집되지 않았습니다.", class_="text-muted")
 
-            # 최신 실시간 데이터 가져오기
-            latest = df.iloc[-1]
+            latest = df.iloc[-1].copy()
 
-            # anomaly_level 기준으로 판단
-            anomaly_score = latest.get('anomaly_level', "정상")
+            # ================================
+            # 🔹 모델 기반 예측 수행
+            # ================================
+            input_row = latest.drop(['passorfail', 'registration_time'], errors='ignore')
+            required_features = model_iso.feature_names_in_
+
+            for col in required_features:
+                if col not in input_row:
+                    input_row[col] = 0
+
+            X_input = pd.DataFrame([input_row[required_features]])
+            score = model_iso.decision_function(X_input)[0]
+
+            # ✅ 판정 기준 설정
+            score_thresholds = {
+                "심각": -0.02,
+                "경도": -0.05
+            }
+
+            # ✅ 이상 판단
+            if score <= score_thresholds["심각"]:
+                anomaly_score = "심각"
+            elif score <= score_thresholds["경도"]:
+                anomaly_score = "경도"
+            else:
+                anomaly_score = "정상"
+
             icon = "✅" if anomaly_score == "정상" else "❌"
             color_class = "alert alert-danger" if anomaly_score in ["경도", "심각"] else "alert alert-success"
 
@@ -188,10 +217,8 @@ def server(input, output, session):
 
             return ui.div(
                 ui.div(
-                    ui.h6(f"🧾 실시간 공정 이상 탐지"),
+                    ui.h6("🧾 실시간 공정 이상 탐지"),
                     ui.h4(f"{icon} {anomaly_score}", class_="fw-bold"),
-                    # ui.h6("🕒 판정 시간"),
-                    # ui.p(reg_time),
                     ui.input_action_button("goto_2page", "이상탐지 확인하기", class_="btn btn-sm btn-outline-primary"),
                     class_=f"{color_class} p-3 rounded"
                 )
@@ -209,68 +236,58 @@ def server(input, output, session):
             if df.empty:
                 return ui.div("데이터 없음", class_="text-muted")
 
-            # 최신 데이터 한 행
             latest = df.iloc[-1]
-            # latest = pd.DataFrame([latest])
-            if 'passorfail' not in latest:
-                print("⚠️ 'passorfail' 컬럼이 존재하지 않음")
-                return ui.div("예측값 없음", class_="text-muted")
+            latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
 
-            # # ✅ Pipeline 추출
-            
-            # # registration_time을 datetime으로 변환
-            # latest["registration_time"] = pd.to_datetime(latest["registration_time"], errors="coerce")
+            # ✅ registration_time 처리 및 파생 컬럼 생성
+            latest["registration_time"] = pd.to_datetime(latest["registration_time"], errors="coerce")
+            latest["time"] = latest["registration_time"].dt.strftime("%H:%M:%S")  # 시:분:초
+            latest["date"] = latest["registration_time"].dt.strftime("%Y-%m-%d")  # 연-월-일
+            latest["registration_time"] = latest["registration_time"].astype(str)
 
-            # # 'time' (시:분), 'date' (연-월-일) 파생 컬럼 생성
-            # latest["registration_time"] = pd.to_datetime(latest["registration_time"], errors="coerce")
+            # ✅ 모델에서 사용한 컬럼 정보 추출
+            pipeline = model.best_estimator_
+            preprocessor = pipeline.named_steps["preprocess"]
+            numeric_features = preprocessor.transformers_[0][2]
+            categorical_features = preprocessor.transformers_[1][2]
+            model_features = numeric_features + categorical_features
 
-            # # 'time' (시:분:초), 'date' (연-월-일) 파생 컬럼 생성
-            # latest["date"] = latest["registration_time"].dt.strftime("%H:%M:%S")   # 시:분:초
-            # latest["time"] = latest["registration_time"].dt.strftime("%Y-%m-%d")   # 연-월-일
+            # ✅ 누락된 컬럼 보완
+            for col in model_features:
+                if col not in latest.columns:
+                    latest[col] = 0.0 if col in numeric_features else "Unknown"
+            print(f"✅ 누락된 컬럼 보완 완료")
 
-            # latest["registration_time"] = latest["registration_time"].astype(str)
-            
-            
-            # # 숫자형/범주형 컬럼 분리
-            # numeric_cols = latest.select_dtypes(include=['number']).columns
-            # categorical_cols = latest.select_dtypes(exclude=['number']).columns
+            # ✅ 수치형 / 범주형 분리 (모델 기준으로)
+            numeric_cols = numeric_features
+            categorical_cols = categorical_features
 
-            # # 숫자형 결측값 평균으로 대체 (형태 일치하도록 DataFrame으로 변환)
-            # imputed_numeric = pd.DataFrame(
-            #     SimpleImputer(strategy="mean").fit_transform(latest[numeric_cols]),
-            #     columns=numeric_cols,
-            #     index=latest.index
-            # )
-            # latest[numeric_cols] = imputed_numeric
+            # ✅ NaN-only 수치형 컬럼 제외 후 결측치 처리
+            valid_numeric_cols = [col for col in numeric_cols if not latest[col].isna().all()]
+            print(f"📊 결측치 처리 대상 수치형 컬럼: {valid_numeric_cols}")
 
-            # # 범주형 결측값은 'Unknown'으로 대체
-            # latest[categorical_cols] = latest[categorical_cols].fillna("Unknown")
-            
-            # pipeline = model.best_estimator_
+            latest[valid_numeric_cols] = pd.DataFrame(
+                SimpleImputer(strategy="mean").fit_transform(latest[valid_numeric_cols]),
+                columns=valid_numeric_cols,
+                index=latest.index
+            )
+            print("✅ 수치형 결측치 처리 완료")
 
-            # preprocessor = pipeline.named_steps["preprocess"]
-            # numeric_cols = preprocessor.transformers_[0][2]
-            # categorical_cols = preprocessor.transformers_[1][2]
-            # model_features = numeric_cols + categorical_cols
+            # ✅ 범주형 결측치 처리
+            latest[categorical_cols] = latest[categorical_cols].fillna("Unknown")
+            print("✅ 범주형 결측치 처리 완료")
 
+            # ✅ 모델 입력 형식 정렬
+            X_live = latest[model_features]
 
-            # missing_cols = [col for col in model_features if col not in latest]
-
-            # # 예측값 계산
-            # X_live = latest[model_features]
-            # prob = model.predict_proba(X_live)[:, 1][0]  # 불량 확률
-            prob = latest['passorfail']
+            # ✅ 예측 수행
+            prob = model.predict_proba(X_live)[0, 1]
             result = "불량" if prob >= 0.5 else "양품"
             icon = "❌" if result == "불량" else "✅"
             color_class = "alert alert-danger" if result == "불량" else "alert alert-success"
 
-            reg_time = latest.get('registration_time')
-            try:
-                reg_time = pd.to_datetime(reg_time).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception as time_err:
-                print(f"⚠️ 시간 파싱 오류: {time_err}")
-                reg_time = "시간 정보 없음"
 
+            # ✅ 결과 UI 출력
             return ui.div(
                 ui.div(
                     ui.h6("🧾 실시간 품질 불량 판정"),
@@ -286,6 +303,11 @@ def server(input, output, session):
         except Exception as e:
             print(f"⛔ current_prediction 오류 발생: {e}")
             return ui.div(f"오류: {str(e)}", class_="text-danger")
+        
+
+
+
+
     @reactive.effect
     @reactive.event(input.goto_2page)
     def go_to_page_3():
@@ -688,19 +710,135 @@ def server(input, output, session):
         if df.empty:
             return
 
-        latest = df.iloc[-1]
-        level = latest.get("anomaly_level", "정상")
 
-        if level not in ["경도", "심각"]:
-            return  # 정상은 무시
+        score_thresholds = {
+            "심각": -0.02,
+            "경도": -0.05
+        }
 
-        logs = alert_logs.get() or []
-        logs.append({
-            "time": pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S"),
-            "level": level
-        })
 
-        alert_logs.set(logs[-10:])
+        latest = df.iloc[-1].copy()
+
+        # 🔹 입력 벡터 구성 (모델에 필요한 컬럼만, 누락 시 보간)
+        input_row = latest.drop(['passorfail', 'registration_time'], errors='ignore')
+        required_features = model_iso.feature_names_in_
+
+        for col in required_features:
+            if col not in input_row:
+                input_row[col] = 0  # 기본값 보간
+
+        X_input = pd.DataFrame([input_row[required_features]])
+
+        # 🔹 예측 및 점수 계산
+        score = model_iso.decision_function(X_input)[0]
+        pred = model_iso.predict(X_input)[0]
+
+        # 🔹 anomaly_level 판정
+        if score <= score_thresholds["심각"]:
+            level = "심각"
+        elif score <= score_thresholds["경도"]:
+            level = "경도"
+        else:
+            level = "정상"
+
+        # 🔹 결과 알람 조건에 따라 로그 업데이트
+        if level in ["경도", "심각"]:
+            logs = alert_logs.get() or []
+            detail_logs = anomaly_detail_logs.get() or []
+
+            timestamp = pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S")
+
+            
+            # ✅ 알림 로그 (상단 요약용)@output
+    @render.ui
+    def current_prediction2():
+        try:
+            df = current_data.get()
+            if df.empty:
+                return ui.div("데이터 없음", class_="text-muted")
+
+            latest = df.iloc[-1]
+            latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
+
+            # ✅ registration_time 처리 및 파생 컬럼 생성
+            latest["registration_time"] = pd.to_datetime(latest["registration_time"], errors="coerce")
+            latest["time"] = latest["registration_time"].dt.strftime("%H:%M:%S")  # 시:분:초
+            latest["date"] = latest["registration_time"].dt.strftime("%Y-%m-%d")  # 연-월-일
+            latest["registration_time"] = latest["registration_time"].astype(str)
+
+            # ✅ 모델에서 사용한 컬럼 정보 추출
+            pipeline = model.best_estimator_
+            preprocessor = pipeline.named_steps["preprocess"]
+            numeric_features = preprocessor.transformers_[0][2]
+            categorical_features = preprocessor.transformers_[1][2]
+            model_features = numeric_features + categorical_features
+
+            # ✅ 누락된 컬럼 보완
+            for col in model_features:
+                if col not in latest.columns:
+                    latest[col] = 0.0 if col in numeric_features else "Unknown"
+
+            # ✅ 수치형 / 범주형 분리 (모델 기준으로)
+            numeric_cols = numeric_features
+            categorical_cols = categorical_features
+
+            # ✅ NaN-only 수치형 컬럼 제외 후 결측치 처리
+            valid_numeric_cols = [col for col in numeric_cols if not latest[col].isna().all()]
+
+            latest[valid_numeric_cols] = pd.DataFrame(
+                SimpleImputer(strategy="mean").fit_transform(latest[valid_numeric_cols]),
+                columns=valid_numeric_cols,
+                index=latest.index
+            )
+
+            # ✅ 범주형 결측치 처리
+            latest[categorical_cols] = latest[categorical_cols].fillna("Unknown")
+            # ✅ 모델 입력 형식 정렬
+            X_live = latest[model_features]
+
+            # ✅ 예측 수행
+            prob = model.predict_proba(X_live)[0, 1]
+            result = "불량" if prob >= 0.5 else "양품"
+            icon = "❌" if result == "불량" else "✅"
+            color_class = "alert alert-danger" if result == "불량" else "alert alert-success"
+
+            # ✅ 시간 표시 처리
+            try:
+                reg_time = pd.to_datetime(latest["registration_time"].values[0]).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as time_err:
+                print(f"⚠️ 시간 파싱 오류: {time_err}")
+                reg_time = "시간 정보 없음"
+
+            # ✅ 결과 UI 출력
+            return ui.div(
+                ui.div(
+                    ui.h6("🧾 실시간 품질 불량 판정"),
+                    ui.h4(f"{icon} {result}", class_="fw-bold"),
+                    class_="mb-2"
+                ),
+                ui.div(
+                    ui.input_action_button("goto_3page", "불량탐지 확인하기", class_="btn btn-sm btn-outline-primary")
+                ),
+                class_=f"{color_class} p-3 rounded"
+            )
+
+        except Exception as e:
+            print(f"⛔ current_prediction 오류 발생: {e}")
+            return ui.div(f"오류: {str(e)}", class_="text-danger")
+            logs.append({
+                "time": timestamp,
+                "level": level.strip()
+            })
+
+            # ✅ 상세 로그 (테이블용)
+            # ✅ 'level'을 latest dict에 명시적으로 포함
+            latest["time"] = timestamp
+            latest["level"] = level.strip()
+            detail_logs.append(latest.to_dict())
+
+            alert_logs.set(logs[-10:])
+            anomaly_detail_logs.set(detail_logs[-10:])
+            
 
     @reactive.effect
     @reactive.event(input.clear_alerts)
@@ -714,8 +852,8 @@ def server(input, output, session):
         logs = alert_logs.get() or []  # logs가 None일 경우를 대비
     
         # level별 필터링 (없어도 0으로 반환되도록)
-        mild_logs = [log for log in logs if log.get("level") == "경도"]
-        severe_logs = [log for log in logs if log.get("level") == "심각"]
+        mild_logs = [log for log in logs if log.get("level", "").strip() == "경도"]
+        severe_logs = [log for log in logs if log.get("level", "").strip() == "심각"]
         count_badge = ui.div(
             ui.HTML(f"<span style='margin-right:10px;'>🟠 <b>경도</b>: {len(mild_logs)}</span> | "
                     f"<span style='margin-left:10px;'>🔴 <b>심각</b>: {len(severe_logs)}</span>"),
@@ -789,13 +927,21 @@ def server(input, output, session):
             ax.plot(df_plot.index, df_plot["Center"], linestyle=':', color='black', label="Center Line")
             ax.fill_between(df_plot.index, df_plot["LCL"], df_plot["UCL"], color='red', alpha=0.1)
 
-            # ✅ y축 범위 설정 (상/하한보다 여유 있게 보기 위해)
-            min_y = min(df_plot["LCL"].min(), df_plot["DefectiveRate"].min())
-            max_y = max(df_plot["UCL"].max(), df_plot["DefectiveRate"].max())
-            y_margin = (max_y - min_y) * 0.1  # 여유 마진 10%
+            # ✅ 불량률 및 관리한계선에서 최소/최대 계산
+            min_val = min(df_plot["DefectiveRate"].min(), df_plot["LCL"].min())
+            max_val = max(df_plot["DefectiveRate"].max(), df_plot["UCL"].max())
 
-            ax.set_xlim(df_plot.index.min(), df_plot.index.max())
-            ax.set_ylim(min_y - y_margin, max_y + y_margin)
+            # ✅ 변화폭이 작을 경우, 확대 효과를 주기 위해 가중 마진
+            range_val = max_val - min_val
+            if range_val < 0.01:
+                y_min = max(0, min_val - 0.005)
+                y_max = min(1.0, max_val + 0.015)  # 아주 미세한 차이도 확대해서 보여줌
+            else:
+                y_margin = range_val * 0.3
+                y_min = max(0, min_val - y_margin)
+                y_max = min(1.0, max_val + y_margin)
+
+            ax.set_ylim(y_min, y_max)
 
             # # ✅ x축 설정
             # ax.set_xticks(df_plot.index)
@@ -1252,7 +1398,23 @@ def server(input, output, session):
             ax.set_title(f"관리도 기반 불량률 분석 ({unit}) - 최근 20개",fontproperties=font_prop)
             ax.set_xlabel("시간 단위",fontproperties=font_prop)
             ax.set_ylabel("불량률",fontproperties=font_prop)
-            ax.set_ylim(0, 1)
+            # ✅ 시각화를 위한 y축 범위 계산
+            min_val = min(min(values), min(lcl))
+            max_val = max(max(values), max(ucl))
+            range_val = max_val - min_val
+
+            # ✅ 극소 불량률 보정
+            if max_val < 0.01:
+                y_min, y_max = -0.005, 0.03  # 완전 플랫 방지용 확대
+            elif range_val < 0.01:
+                y_min = max(0, min_val - 0.005)
+                y_max = min(1.0, max_val + 0.02)
+            else:
+                y_margin = range_val * 0.3
+                y_min = max(0, min_val - y_margin)
+                y_max = min(1.0, max_val + y_margin)
+
+            ax.set_ylim(y_min, y_max)
             ax.legend()
             ax.grid(True, alpha=0.3)
             plt.xticks(rotation=45)
@@ -1470,7 +1632,7 @@ def server(input, output, session):
                                 ui.layout_columns(
                                     #TAB 2 [C] 시간에 따른 이상 분석
                                     ui.card(
-                                        ui.card_header("[B] 이상 탐지 알림"),
+                                        ui.card_header("[A] 이상 탐지 알림"),
                                         ui.output_ui("log_alert_for_defect"),
                                         ui.output_ui("anomaly_detail_table"),
                                         ui.input_action_button("clear_alerts", "✅ 알림 확인", class_="btn btn-sm btn-secondary")
@@ -1478,14 +1640,14 @@ def server(input, output, session):
                                     # TAB 2 [B] 이상 탐지 알림
                                     
                                     ui.card(
-                                        ui.card_header("[C] 주요 변수의 이상 발생 횟수"),
+                                        ui.card_header("[B] 주요 변수의 이상 발생 횟수"),
                                         ui.output_plot("anomaly_variable_count", height="300px")
                                     ),
                                     col_widths=[6, 6]
                                 ),
                                 ui.layout_columns(
                                     ui.card(
-                                        ui.card_header("[A] 시간에 따른 이상 분석"),
+                                        ui.card_header("[C] 시간에 따른 이상 분석"),
                                         ui.div(
                                             ui.input_select(
                                                 "anomaly_chart_time_unit", 
@@ -1550,6 +1712,9 @@ def server(input, output, session):
                                             ui.output_plot("defect_rate_plot", height="300px")
                                         )
                                     )
+                                ),
+                                ui.nav_panel("부록 (Annexes)"
+                                
                                 ),
                                 ui.nav_spacer(),  # 선택
                             ui.nav_panel("🔓 로그아웃",  # ✅ 여기 추가!
