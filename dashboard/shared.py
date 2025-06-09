@@ -40,21 +40,26 @@ spec_df_all.columns = ["mold_code", "variable", "lower", "upper"]
 
 # ✅ 센서 데이터의 사람이 읽기 쉬운 한글 이름과 단위 정의
 # UI 카드나 그래프 라벨링 시 활용
+# sensor_labels = {
+#     "molten_temp": ("용탕온도", "°C"),
+#     "cast_pressure": ("주조압력", "bar"),
+#     "high_section_speed": ("고속구간속도", "mm/s")
+#     # 필요 시 더 추가
+# }
 sensor_labels = {
-    "molten_temp": ("용탕온도", "°C"),
     "cast_pressure": ("주조압력", "bar"),
-    "high_section_speed": ("고속구간속도", "mm/s")
-    # 필요 시 더 추가
+    "low_section_speed": ("저속구간속도", "mm/s"),
+    "biscuit_thickness": ("비스킷두께", "mm")
 }
 # 사용할 센서 컬럼 선택
 selected_cols = [
     'mold_code',
     'registration_time',
-    'molten_temp',           # 용탕 온도
     'cast_pressure',         # 주조 압력
-    'high_section_speed',    # 고속 구간 속도
     'low_section_speed',     # 저속 구간 속도
     'biscuit_thickness',      # 비스킷 두께
+    'molten_temp',           # 용탕 온도
+    'high_section_speed',    # 고속 구간 속도
     'passorfail',
     'is_anomaly',
     'anomaly_level',

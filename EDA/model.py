@@ -10,7 +10,7 @@ from xgboost import XGBClassifier
 import matplotlib.pyplot as plt
 import seaborn as sns
 app_dir = Path(__file__).parent
-df = pd.read_csv(app_dir / "../dashboard/data/df_final.csv")
+df = pd.read_csv(app_dir / "../dashboard/data/train.csv")
 
 X = df.drop(columns=['passorfail'])
 y = df['passorfail']
@@ -51,11 +51,14 @@ full_pipe_lgbm = Pipeline([
         learning_rate=0.1,
         max_depth=-1))])
 
+
+
 # GradientBoosting_param = {'classifier__learning_rate': np.arange(0.1, 0.3, 0.05)}
 XGB_param = {
     'classifier__learning_rate': np.arange(0.1,0.4,0.05),
     'classifier__max_depth': [3, 4, 5],  # 추가로 추천
-    'classifier__n_estimators': [42]   # 기본값 고정 또는 튜닝
+    'classifier__n_estimators': [42]   # 기본값 고정 또는 튜닝,
+    ,'classifier__scale_pos_weight' : [21.45]
 }
 
 LGBM_param = {
@@ -121,25 +124,25 @@ print('best 파라미터 조합 :', XGB_search_f1.best_params_)
 print('교차검증 f1 score :', XGB_search_f1.best_score_)
 
 print('best 파라미터 조합 :', XGB_search_recall.best_params_)
-print('교차검증 f1 score :', XGB_search_recall.best_score_)
+print('교차검증 recall score :', XGB_search_recall.best_score_)
 
 print('best 파라미터 조합 :', LGBM_search_f1.best_params_)
 print('교차검증 f1 score :', LGBM_search_f1.best_score_)
 
 print('best 파라미터 조합 :', LGBM_search_recall.best_params_)
 print('교차검증 f1 score :', LGBM_search_recall.best_score_)
-# importances = XGB_search_f1.best_estimator_.named_steps["classifier"].feature_importances_
-# # 피처 이름과 함께 DataFrame으로 정리
-# feature_names = XGB_search_f1.best_estimator_ \
-#     .named_steps["preprocess"] \
-#     .get_feature_names_out()
+importances = XGB_search_recall.best_estimator_.named_steps["classifier"].feature_importances_
+# 피처 이름과 함께 DataFrame으로 정리
+feature_names = XGB_search_recall.best_estimator_ \
+    .named_steps["preprocess"] \
+    .get_feature_names_out()
     
     
-# feature_importance_df = pd.DataFrame({
-#     'feature': feature_names,
-#     'importance': importances
-# }).sort_values(by='importance', ascending=False)
-# feature_importance_df.head(10)
+feature_importance_df = pd.DataFrame({
+    'feature': feature_names,
+    'importance': importances
+}).sort_values(by='importance', ascending=False)
+feature_importance_df.head(10)
 
 
 
@@ -148,7 +151,7 @@ print('교차검증 f1 score :', LGBM_search_recall.best_score_)
 # print('교차검증 f1 score :', GradientBoosting_search.best_score_)
 
 xgb_f1_pred = XGB_search_f1.predict(test_X)
-xgb_recall_pred = XGB_search_f1.predict(test_X)
+xgb_recall_pred = XGB_search_recall.predict(test_X)
 lgbm_f1_pred = LGBM_search_f1.predict(test_X)
 lgbm_recall_pred = LGBM_search_recall.predict(test_X)
 
@@ -158,7 +161,7 @@ from sklearn.metrics import recall_score
 # gb_pred = GradientBoosting_search.predict(test_X)
 # print('테스트 f1 score :', f1_score(test_y, gb_pred))
 print('xgb 테스트 f1 score :', f1_score(test_y, xgb_f1_pred))
-print('xgb 테스트 recall score :', recall_score(test_y, xgb_f1_pred, average='macro'))
+print('xgb 테스트 recall score :', recall_score(test_y, xgb_recall_pred, average='macro'))
 
 print('lgbm 테스트 f1 score :', f1_score(test_y, lgbm_f1_pred))
 print('lgbm 테스트 recall score :', recall_score(test_y, xgb_f1_pred, average='macro'))
@@ -169,7 +172,7 @@ from sklearn.metrics import confusion_matrix
 conf_mat = confusion_matrix(test_y, lgbm_recall_pred)
 print("혼동행렬:\n", conf_mat)
 # import pickle
-# pickle.dump(model_xgb, open("model.pkl", "wb"))
+# pickle.dump(model_xgb_recall, open("model_xgb.pkl", "wb"))
 
 # model_loaded = pickle.load(open("model.pkl", "rb"))
 # # 예측 확인
