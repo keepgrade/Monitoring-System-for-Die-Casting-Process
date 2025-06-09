@@ -24,17 +24,19 @@ import pickle
 import shap
 from sklearn.impute import SimpleImputer
 from collections import Counter
-# 📍 server 구성 위쪽 (전역)
-selected_log_index = reactive.Value(None)
-
-model_pipe = joblib.load("./dashboard/model_pipe.pkl")
-shap_explainer = shap.TreeExplainer(model_pipe.named_steps["classifier"])
-
 from pathlib import Path
 import matplotlib.font_manager as fm
-model = joblib.load("./dashboard/model.pkl")
-# 앱 디렉터리 설정
+# 📍 server 구성 위쪽 (전역)
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "www")
+selected_log_index = reactive.Value(None)
 app_dir = Path(__file__).parent
+
+model_pipe = joblib.load(Path(__file__).parent / "www" / "model_pipe.pkl")
+shap_explainer = shap.TreeExplainer(model_pipe.named_steps["classifier"])
+
+
+# model = joblib.load(Path(__file__).parent / "www" / "model.pkl")
+# 앱 디렉터리 설정
 
 # 한글 폰트 설정: MaruBuri-Regular.ttf 직접 로드
 font_path = app_dir / "MaruBuri-Regular.ttf"
@@ -55,7 +57,6 @@ selected_cols = [
     'biscuit_thickness'      # 비스킷 두께
 ]
 df_selected = streaming_df[selected_cols].reset_index(drop=True)
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "www")
 
 
 cached_weather = {"time": None, "data": None}
@@ -401,7 +402,7 @@ def server(input, output, session):
                 except Exception as e:
                     print(f"⛔ stream_plot_{code} 오류:", e)
                     fig, ax = plt.subplots()
-                    ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha="center", va="center", fontsize=12, color='red')
+                    ax.text(0.5, 0.5, f"{str(e)}", ha="center", va="center", fontsize=12, color='red',fontproperties=font_prop)
                     ax.axis("off")
                     return fig
 
@@ -633,7 +634,7 @@ def server(input, output, session):
             df = current_data.get()
             if df.empty:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "데이터 없음", ha='center', va='center')
+                ax.text(0.5, 0.5, "데이터 없음", ha='center', va='center',fontproperties=font_prop)
                 return fig
 
             # ✅ 최신 데이터 한 줄
@@ -651,7 +652,7 @@ def server(input, output, session):
 
             if not counts:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "이상 변수 없음", ha='center', va='center')
+                ax.text(0.5, 0.5, "이상 변수 없음", ha='center', va='center',fontproperties=font_prop)
                 return fig
 
             # 전체 변수에 대해 정렬된 리스트 생성
@@ -667,14 +668,14 @@ def server(input, output, session):
             for bar in bars:
                 width = bar.get_width()
                 ax.text(width + 0.2, bar.get_y() + bar.get_height()/2,
-                        f'{int(width)}', va='center')
+                        f'{int(width)}', va='center',fontproperties=font_prop)
 
             plt.tight_layout()
             return fig
 
         except Exception as e:
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"오류: {str(e)}", ha='center', va='center')
+            ax.text(0.5, 0.5, f"오류: {str(e)}", ha='center', va='center',fontproperties=font_prop)
             return fig
 
     # ================================
@@ -793,21 +794,40 @@ def server(input, output, session):
             max_y = max(df_plot["UCL"].max(), df_plot["DefectiveRate"].max())
             y_margin = (max_y - min_y) * 0.1  # 여유 마진 10%
 
+            ax.set_xlim(df_plot.index.min(), df_plot.index.max())
             ax.set_ylim(min_y - y_margin, max_y + y_margin)
 
+            # # ✅ x축 설정
+            # ax.set_xticks(df_plot.index)
+            # ax.set_xticklabels(df_plot["Group"], rotation=0, ha='right')
+            
             # ✅ x축 설정
-            ax.set_xticks(df_plot.index)
-            ax.set_xticklabels(df_plot["Group"], rotation=45, ha='right')
+            group_labels = df_plot["Group"]
+
+            # datetime 또는 Period 타입이면 시:분:초로 포맷 변경
+            if pd.api.types.is_datetime64_any_dtype(df["time_group"]) or isinstance(df["time_group"].iloc[0], pd.Period):
+                group_labels = pd.to_datetime(group_labels, errors='coerce').dt.strftime("%H:%M:%S")
+
+            # ✅ 간격 두고 라벨 표시 (예: 3칸마다 하나씩)
+            tick_interval = 3
+            xticks = df_plot.index[::tick_interval]
+            xticklabels = group_labels[::tick_interval]
+
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xticklabels, rotation=0, ha='right', fontsize=9)
+            
             ax.set_ylabel("공정 이상률",fontproperties=font_prop)
             ax.set_title(f"공정 이상률 관리도 (단위: {unit})",fontproperties=font_prop)
             ax.grid(True, alpha=0.3)
             ax.legend(loc="upper right")
-            fig.tight_layout(pad=2.5)
+            fig.tight_layout(pad=2)
+            fig.subplots_adjust(left=0.05,bottom=0.1)  # ✅ 왼쪽 여백 확보
+            
             return fig
 
         except Exception as e:
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', va='center', color='red')
+            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', va='center', color='red',fontproperties=font_prop)
             return fig
     
     
@@ -977,7 +997,7 @@ def server(input, output, session):
     
         except Exception as e:
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center')
+            ax.text(0.5, 0.5, f"에러: {str(e)}", ha='center', va='center',fontproperties=font_prop)
             return fig
         
     @output
@@ -1048,7 +1068,7 @@ def server(input, output, session):
         except Exception as e:
             print(f"[defect_rate_plot] 에러: {e}")
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center')
+            ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center',fontproperties=font_prop)
             return fig
 
 
@@ -1241,7 +1261,7 @@ def server(input, output, session):
 
         except Exception as e:
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center')
+            ax.text(0.5, 0.5, f"에러 발생: {str(e)}", ha='center', va='center',fontproperties=font_prop)
             return fig
 
 # ================================
@@ -1263,7 +1283,7 @@ def server(input, output, session):
 
             if reg_time is None:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "불량 로그를 선택하세요", ha='center')
+                ax.text(0.5, 0.5, "불량 로그를 선택하세요", ha='center',fontproperties=font_prop)
                 return fig
 
             # 판정 시간 일치하는 row 찾기
@@ -1273,7 +1293,7 @@ def server(input, output, session):
 
             if row_match.empty:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "해당 시간의 입력값을 찾을 수 없습니다", ha='center')
+                ax.text(0.5, 0.5, "해당 시간의 입력값을 찾을 수 없습니다", ha='center',fontproperties=font_prop)
                 return fig
 
             # 로그에서 결과 확인
@@ -1281,13 +1301,13 @@ def server(input, output, session):
             log = next((l for l in logs if l["판정 시간"] == reg_time), None)
             if log is None:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "해당 로그를 찾을 수 없습니다", ha='center')
+                ax.text(0.5, 0.5, "해당 로그를 찾을 수 없습니다", ha='center',fontproperties=font_prop)
                 return fig
 
             if log["결과"] != "불량":
                 fig, ax = plt.subplots()
                 ax.axis("off")
-                ax.text(0.5, 0.5, "✅ 양품입니다\nSHAP 해석은 불량에만 제공됩니다", ha='center', va='center', color='gray')
+                ax.text(0.5, 0.5, "✅ 양품입니다\nSHAP 해석은 불량에만 제공됩니다", ha='center', va='center', color='gray',fontproperties=font_prop)
                 return fig
 
             # ============================
@@ -1329,7 +1349,7 @@ def server(input, output, session):
 
         except Exception as e:
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', color='red')
+            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', color='red',fontproperties=font_prop)
             return fig
 
 
@@ -1448,8 +1468,22 @@ def server(input, output, session):
                             # ================================
                             ui.nav_panel("공정 이상 탐지   (Process Anomaly Detection)",
                                 ui.layout_columns(
-                                    # TAB 2 [A] 주요 변수의 이상 발생 횟수
                                     #TAB 2 [C] 시간에 따른 이상 분석
+                                    ui.card(
+                                        ui.card_header("[B] 이상 탐지 알림"),
+                                        ui.output_ui("log_alert_for_defect"),
+                                        ui.output_ui("anomaly_detail_table"),
+                                        ui.input_action_button("clear_alerts", "✅ 알림 확인", class_="btn btn-sm btn-secondary")
+                                    ),
+                                    # TAB 2 [B] 이상 탐지 알림
+                                    
+                                    ui.card(
+                                        ui.card_header("[C] 주요 변수의 이상 발생 횟수"),
+                                        ui.output_plot("anomaly_variable_count", height="300px")
+                                    ),
+                                    col_widths=[6, 6]
+                                ),
+                                ui.layout_columns(
                                     ui.card(
                                         ui.card_header("[A] 시간에 따른 이상 분석"),
                                         ui.div(
@@ -1462,20 +1496,6 @@ def server(input, output, session):
                                             class_="mb-3"
                                         ),
                                         ui.output_plot("anomaly_p_chart", height="300px")
-                                    ),
-                                    # TAB 2 [B] 이상 탐지 알림
-                                    ui.card(
-                                        ui.card_header("[B] 이상 탐지 알림"),
-                                        ui.output_ui("log_alert_for_defect"),
-                                        ui.output_ui("anomaly_detail_table"),
-                                        ui.input_action_button("clear_alerts", "✅ 알림 확인", class_="btn btn-sm btn-secondary")
-                                    ),
-                                    col_widths=[6, 6]
-                                ),
-                                ui.layout_columns(
-                                    ui.card(
-                                        ui.card_header("[C] 주요 변수의 이상 발생 횟수"),
-                                        ui.output_plot("anomaly_variable_count", height="300px")
                                     ),
                                     
                 # [D] [D] 이상치 내 불량률
@@ -1495,7 +1515,22 @@ def server(input, output, session):
                                     # TAB 3 [A] 
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[A] 단위 시간 당 불량 관리도"),
+                                            ui.card_header("[A] 품질 불량 판별"),
+                                            ui.output_ui("current_prediction"),
+                                            ui.output_ui("prediction_log_table")
+                                        ),
+                                        # TAB 3 [B]
+                                        ui.card(# TAB 3 [D]# TAB 3 [D]# TAB 3 [D]# TAB 3 [D]
+                                            ui.card_header("[B] SHAP 변수 기여도 분석"),
+                                            ui.output_plot("shap_explanation_plot")
+                                            
+                                        )
+                                        
+                                    ),
+                                    # TAB 3 [C]
+                                    ui.layout_columns(
+                                        ui.card(
+                                            ui.card_header("[C] 단위 시간 당 불량 관리도"),
                                             ui.input_select(
                                                 "fail_time_unit", 
                                                 "시간 단위 선택", 
@@ -1504,17 +1539,8 @@ def server(input, output, session):
                                             ),
                                             ui.output_plot("fail_rate_by_time", height="350px"),
                                         ),
-                                        # TAB 3 [B]
                                         ui.card(
-                                            ui.card_header("[B] 품질 불량 판별"),
-                                            ui.output_ui("current_prediction"),
-                                            ui.output_ui("prediction_log_table")
-                                        )
-                                    ),
-                                    # TAB 3 [C]
-                                    ui.layout_columns(
-                                        ui.card(
-                                            ui.card_header("[C] 몰드 코드별 품질 불량 횟수"),
+                                            ui.card_header("[D] 몰드 코드별 품질 불량 횟수"),
                                             ui.input_date_range(
                                                 "date_range", 
                                                 "📅 기간 선택", 
@@ -1522,12 +1548,6 @@ def server(input, output, session):
                                                 end="2019-03-12",    # 데이터 종료일 # 기본값
                                             ),
                                             ui.output_plot("defect_rate_plot", height="300px")
-                                        ),
-# TAB 3 [D]
-                                        ui.card(# TAB 3 [D]# TAB 3 [D]# TAB 3 [D]# TAB 3 [D]
-                                            ui.card_header("[D] SHAP 변수 기여도 분석"),
-                                            ui.output_plot("shap_explanation_plot")
-                                            
                                         )
                                     )
                                 ),
