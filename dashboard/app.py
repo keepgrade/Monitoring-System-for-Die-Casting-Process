@@ -26,19 +26,37 @@ from sklearn.impute import SimpleImputer
 from collections import Counter
 from pathlib import Path
 import matplotlib.font_manager as fm
+from sklearn.pipeline import Pipeline
+
 # 📍 server 구성 위쪽 (전역)
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "www")
 selected_log_index = reactive.Value(None)
 app_dir = Path(__file__).parent
 
-model_pipe = joblib.load(Path(__file__).parent / "www" / "model_pipe.pkl")
+# # 모델 불러오기
+# model_pipe = joblib.load(Path(__file__).parent / "www" / "model_pipe.pkl")
+# model = model_pipe.named_steps["classifier"]
+# shap_explainer = shap.TreeExplainer(model)
 
 
-model_pipeline = joblib.load("./www/model_pipeline.pkl")  # pipeline이 저장된 경로
-shap_explainer = shap.TreeExplainer(model_pipeline.named_steps["classifier"])
+model_pipe = joblib.load(Path(__file__).parent / "www" / "model_pipe.pkl")  # ✅ pipeline 전체
+model = model_pipe.named_steps["classifier"]  # classifier 추출
+shap_explainer = shap.TreeExplainer(model)   # SHAP explainer 생성
 
-if isinstance(model_pipe, dict):
-    print("📦 model_pipe 키 목록:", model_pipe.keys())
+
+# # model_pipe가 dict이면 내부 pipeline에서 classifier 꺼냄
+# if isinstance(model_pipe, dict):
+#     pipeline = model_pipe["pipeline"]
+# else:
+#     pipeline = model_pipe
+
+# # classifier를 SHAP explainer에 전달
+
+# model_pipeline = joblib.load("./www/model_pipeline.pkl")  # pipeline이 저장된 경로
+# shap_explainer = shap.TreeExplainer(model_pipeline.named_steps["classifier"])
+
+# if isinstance(model_pipe, dict):
+#     print("📦 model_pipe 키 목록:", model_pipe.keys())
 
 
 model = joblib.load(Path(__file__).parent / "www" / "model_xgb.pkl")
@@ -200,8 +218,8 @@ def server(input, output, session):
 
             # ✅ 판정 기준 설정
             score_thresholds = {
-                "심각": -0.02,
-                "경도": -0.05
+                "심각": -0.07342,
+                "경도": -0.04480
             }
 
             # ✅ 이상 판단
@@ -793,28 +811,38 @@ def server(input, output, session):
         if df.empty:
             return
 
-
         score_thresholds = {
-            "심각": -0.02,
-            "경도": -0.05
+            "심각": -0.07342,
+            "경도": -0.04480
         }
-
 
         latest = df.iloc[-1].copy()
 
-        # 🔹 입력 벡터 구성 (모델에 필요한 컬럼만, 누락 시 보간)
+        # 🔹 입력 벡터 구성
         input_row = latest.drop(['passorfail', 'registration_time'], errors='ignore')
         required_features = model_iso.feature_names_in_
 
         for col in required_features:
             if col not in input_row:
-                input_row[col] = 0  # 기본값 보간
+                input_row[col] = 0
 
         X_input = pd.DataFrame([input_row[required_features]])
 
         # 🔹 예측 및 점수 계산
         score = model_iso.decision_function(X_input)[0]
         pred = model_iso.predict(X_input)[0]
+
+        # 🔹 SHAP top1~3 계산
+        try:
+            shap_explainer = shap.TreeExplainer(model_iso)
+            shap_values = shap_explainer.shap_values(X_input)
+            shap_row = shap_values[0]
+            top_idx = np.argsort(np.abs(shap_row))[::-1][:3]
+            top_names = [required_features[i] for i in top_idx]
+            top_vals = [abs(shap_row[i]) for i in top_idx]
+        except Exception:
+            top_names = ["", "", ""]
+            top_vals = [0.0, 0.0, 0.0]
 
         # 🔹 anomaly_level 판정
         if score <= score_thresholds["심각"]:
@@ -824,27 +852,32 @@ def server(input, output, session):
         else:
             level = "정상"
 
-        # 🔹 결과 알람 조건에 따라 로그 업데이트
+        # 🔹 모든 예측 결과를 latest에 저장
+        latest["anomaly_level"] = level
+        latest["anomaly_score"] = score
+        latest["is_anomaly"] = int(level in ["경도", "심각"])
+        for i, col in enumerate(["top1", "top2", "top3"]):
+            latest[col] = top_names[i]
+        for i, col in enumerate(["top1_val", "top2_val", "top3_val"]):
+            latest[col] = top_vals[i]
+        latest["time"] = pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S")
+
+        # 🔹 알람 로그 저장 (심각/경도일 때만)
         if level in ["경도", "심각"]:
             logs = alert_logs.get() or []
             detail_logs = anomaly_detail_logs.get() or []
 
-            timestamp = pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S")
-
             logs.append({
-                "time": timestamp,
+                "time": latest["time"],
                 "level": level.strip()
             })
-
-            # ✅ 상세 로그 (테이블용)
-            # ✅ 'level'을 latest dict에 명시적으로 포함
-            latest["time"] = timestamp
-            latest["level"] = level.strip()
             detail_logs.append(latest.to_dict())
 
             alert_logs.set(logs[:])
             anomaly_detail_logs.set(detail_logs[:])
-            
+
+
+
 
     @reactive.effect
     @reactive.event(input.clear_alerts)
@@ -1070,30 +1103,49 @@ def server(input, output, session):
     @output
     @render.ui
     def anomaly_detail_table():
-        logs = anomaly_detail_logs.get()
-        if not logs:
-            return ui.div("⚠️ 이상치 상세 로그 없음", class_="text-muted")
+        try:
+            logs = anomaly_detail_logs.get()
+            if not logs:
+                return ui.div("⚠️ 이상치 상세 로그 없음", class_="text-muted")
 
-        rows = []
+            rows = []
 
-        for i, row in enumerate(reversed(logs), 1):
-            details = [
-                f"<b>{k}</b>: {v}" for k, v in row.items()
-                if k not in ["level", "time"]
-            ]
-            level_color = "🔴" if row["level"] == "심각" else "🟠"
-            rows.append(
-                ui.div(
-                    ui.HTML(
-                        f"{level_color} <b>{row['level']}</b> | 🕒 {row['time']}<br>"
-                        + "<br>".join(details)
-                    ),
-                    class_="border rounded p-2 mb-2",
-                    style="background-color: #fffdf5;" if row["level"] == "경도" else "background-color: #fff5f5;"
+            for i, row in enumerate(reversed(logs), 1):
+                # ✅ anomaly_level과 time 안전하게 가져오기
+                level_value = row.get("anomaly_level", "없음")
+                reg_time_raw = row.get("registration_time", "")
+                try:
+                    time_value = pd.to_datetime(reg_time_raw).strftime("%Y-%m-%d %H:%M:%S")
+                except:
+                    time_value = str(reg_time_raw)
+
+                # ✅ 표시 제외 컬럼 정의
+                exclude_keys = {"anomaly_level", "time", "registration_time"}
+
+                details = [
+                    f"<b>{k}</b>: {v}" for k, v in row.items()
+                    if k not in exclude_keys
+                ]
+
+                level_color = "🔴" if level_value == "심각" else ("🟠" if level_value == "경도" else "✅")
+                bg_color = "#fff5f5" if level_value == "심각" else ("#fffdf5" if level_value == "경도" else "#f5fff5")
+
+                rows.append(
+                    ui.div(
+                        ui.HTML(
+                            f"{level_color} <b>{level_value}</b> | 🕒 {time_value}<br>" + "<br>".join(details)
+                        ),
+                        class_="border rounded p-2 mb-2",
+                        style=f"background-color: {bg_color};"
+                    )
                 )
-            )
 
-        return ui.div(*rows, class_="log-container", style="max-height: 450px; overflow-y: auto;")
+            return ui.div(*rows, class_="log-container", style="max-height: 450px; overflow-y: auto;")
+        
+        except Exception as e:
+            return ui.div(f"❌ 로그 렌더링 오류: {str(e)}", class_="text-danger")
+
+
 
     @reactive.effect
     @reactive.event(input.clear_alerts2)
@@ -1717,8 +1769,154 @@ def server(input, output, session):
                                         )
                                     )
                                 ),
-                                ui.nav_panel("부록 (Annexes)"
-                                
+                                ui.nav_panel("부록 (Annexes)",
+                                    ui.page_fluid(
+                                    
+                                        # 1단계
+                                        ui.card(
+                                            ui.card_header(ui.h3("프로젝트 개요 및 데이터 준비")),
+                                            ui.HTML("""
+                                            <h5>1. 대시보드 간단 소개</h5>
+                                            <b>사용자:</b> 생산 라인 책임자 및 주요 관리자<br>
+                                            <b>목적:</b> 공정 이상 탐지 및 불량 예측을 통한 자원·인력 낭비 방지, 신제품 공정 데이터 확보<br>
+                                            <b>기능:</b> 실시간 데이터 스트리밍, 이상 탐지, 주요 원인 파악, 불량 예측
+                                            <hr>
+                                            <h5>2. 데이터 이슈 및 전처리 과정</h5>
+                                            <b>데이터 이슈</b>
+                                            이상치/결측치가 실제로 이싱치인지 결측치인지 판단이 어려움<br>
+                                            일부 변수의 오기입 여부 불명확(1449 등 이상 데이터 다수 존재)<br><br>
+                                            <b>주요 전처리</b>
+                                            불필요 칼럼 ('id', 'line', 'name', 'mold_name', 'emergency_stop') 삭제<br>
+                                            molten_temp 결측 → 최근값으로 대체 (온도 급락 불가능성 가정)<br>
+                                            결측치만 있는 행 1개 삭제<br>
+                                            production_cycletime = 0 → 전체 제거 (실생산 아님)<br>
+                                            low_section_speed 이상치 제거<br>
+                                            molten_volume 결측 → 최근값 대체 (변동 시에만 기록되는 특성 고려)<br>
+                                            cast_pressure 200 이하 양품 25개 행 → boxplot 기반으로 삭제<br>
+                                            1449번 등 명확한 이상행, upper3/lower3 변수 전체 제거<br>
+                                            EMS_operation_time = 0인 행 삭제<br>
+                                            heating_furnace, tryshot_signal 결측치 → 'unknown'으로 대체<br>
+                                            불균형 데이터 (정상:불량 비율 고려) → XGBoost scale_pos_weight = 정상/불량 (예: 9800/200 = 49)로 조정
+
+                                            <hr>
+                                            <h5>전처리 결과 시각화 보기</h5>
+                                            <details style="margin-top: 10px;">
+                                              <summary style="font-size: 16px; cursor: pointer;">수치형 변수 Boxplot</summary>
+                                              <img src="수치형변수별_boxplot.png" style="width: 100%; margin: 10px 0;">
+                                            </details>
+
+                                            <details style="margin-top: 15px;">
+                                              <summary style="font-size: 16px; cursor: pointer;">mold_code별 Boxplot</summary>
+                                              <img src="mold_code별_boxplot.png" style="width: 100%; margin: 10px 0;">
+                                            </details>
+                                            """)
+                                        ),
+
+
+                                        # 2단계
+                                        ui.card(
+                                            ui.card_header(ui.h3("모델 구성 및 설정")),
+                                            ui.HTML("""
+                                            <h5>3. 사용 모델 및 간단 원리</h5>
+
+                                            <b>Isolation Forest (이상 탐지):</b>
+                                            mold_code별로 개별 모델 학습 및 예측<br>
+                                            수치형 변수만 추출해 결측값은 평균으로 대체<br>
+                                            contamination=0.05, random_state=42 설정<br>
+                                            예측 결과로 is_anomaly (-1: 이상치, 1: 정상) 생성<br>
+                                            decision_function 기반 anomaly_score 계산<br>
+                                            anomaly_score 분위수 기준으로 anomaly_level(정상/경도/심각) 분류<br><br>
+
+                                            <b>SHAP (이상 탐지 주요 변수 해석):</b>
+                                            각 mold_code별 IsolationForest 모델에 TreeExplainer 적용<br>
+                                            is_anomaly = -1인 이상치 샘플에 대해 SHAP 값 계산<br>
+                                            SHAP 절댓값 기준 상위 3개 변수 추출<br><br>
+                                                    
+                                            <b>XGBoost (불량 예측)</b>
+                                            수치형 변수는 StandardScaler, 범주형 변수는 OneHotEncoder 적용<br>
+                                            ColumnTransformer로 수치형/범주형 전처리 후 Pipeline 구성<br>
+                                            use_label_encoder=False, eval_metric='logloss' 설정<br>
+                                            불균형 보정: scale_pos_weight = 21.45 적용<br>
+                                            주요 하이퍼파라미터 튜닝 대상: learning_rate (0.1~0.35), max_depth (3~5), n_estimators (42)<br>
+                                            GridSearchCV로 f1_macro, recall 기준 각각 교차검증 수행<br>
+                                            최종 선택 모델은 f1_score 또는 recall 기준으로 평가<br><br>
+                                            
+                                            <b>SHAP (불량 예측 해석)</b>
+                                            XGBoost 예측 결과 중 logit score 기준으로 SHAP 값 계산<br>
+                                            TreeExplainer로 SHAP 값 도출: 각 변수의 로짓값 기여도 분석<br>
+                                            절댓값 기준 SHAP 값이 큰 상위 변수 3개 추출<br>
+                                            해당 변수들이 불량 확률을 높이는데 얼마나 기여했는지 정량 해석<br><br>
+                                                    
+                                            <b>Feature Importance (불량 주요 변수 해석)</b>
+                                            XGBoost 최적 모델(best_estimator_)에서 전처리 후 피처 이름 추출<br>
+                                            ColumnTransformer 기반 피처 이름: get_feature_names_out() 사용<br>
+                                            모델에서 학습된 feature_importances_ 값을 함께 DataFrame으로 정리<br>
+                                            중요도 기준 상위 변수 10개 추출 및 시각화 가능<br>
+                                            주요 변수 기준으로 불량에 영향을 미치는 요인을 해석에 활용<br><br>
+                                                    
+                                            <hr>
+                                            <h5>4. 모델 선정 이유</h5>
+                                            <div style="display: flex; gap: 30px;">
+
+                                              <!-- Isolation Forest 테이블 -->
+                                              <div style="flex: 1;">
+                                                <b>Isolation Forest (이상 탐지)</b><br>
+                                                <table class="table table-bordered table-sm" style="font-size: 14px;">
+                                                  <tr><th>항목</th><th>이유</th></tr>
+                                                  <tr><td>학습 방식</td><td>비지도 학습 (라벨 없음)</td></tr>
+                                                  <tr><td>전제 조건</td><td>정상 데이터 다수, 이상치 소수</td></tr>
+                                                  <tr><td>불균형 영향</td><td>없음 (라벨 사용 안 함)</td></tr>
+                                                  <tr><td>적합한 상황</td><td>이상치 여부만 판단하고자 할 때</td></tr>
+                                                  <tr><td>파라미터로 이상 비율 설정</td><td>contamination으로 직접 제어 가능</td></tr>
+                                                  <tr><td>사용 목적</td><td>공정에서 벗어난 이상 패턴 조기 탐지</td></tr>
+                                                </table>
+                                              </div>
+
+                                              <!-- XGBoost 테이블 -->
+                                              <div style="flex: 1;">
+                                                <b>XGBoost (불량 판별)</b><br>
+                                                <table class="table table-bordered table-sm" style="font-size: 14px;">
+                                                  <tr><th>항목</th><th>이유</th></tr>
+                                                  <tr><td>학습 방식</td><td>지도 학습 (정답 라벨 사용)</td></tr>
+                                                  <tr><td>전제 조건</td><td>불량 데이터가 희소한 불균형 분류</td></tr>
+                                                  <tr><td>불균형 보정 기능</td><td>scale_pos_weight로 가중치 조절</td></tr>
+                                                  <tr><td>적합한 상황</td><td>불량/정상 구분 필요할 때</td></tr>
+                                                  <tr><td>성능</td><td>높은 정확도 + 해석력 (Feature Importance 제공)</td></tr>
+                                                  <tr><td>사용 목적</td><td>품질 불량 판별</td></tr>
+                                                </table>
+                                              </div>
+
+                                            </div>
+                                            """)
+                                        ),
+
+                                        # 3단계
+                                        ui.card(
+                                            ui.card_header(ui.h3("모델 성능(불량 판단 모델)")),
+                                            ui.HTML("""
+                                            <h5>5. 모델 성능 평가 결과</h5>
+
+                                            <div style="display: flex; gap: 30px;">
+                                              <div style="flex: 1;">
+                                                <b>XGBoost Confusion Matrix (F1 기준)</b><br>
+                                                <img src="XGBoost Confusion Matrix (f1 기준).png" style="width: 100%; margin-top: 10px;">
+                                              </div>
+
+                                              <div style="flex: 1;">
+                                                <b>XGBoost Confusion Matrix (Recall 기준)</b><br>
+                                                <img src="XGBoost Confusion Matrix (Recall 기준).png" style="width: 100%; margin-top: 10px;">
+                                              </div>
+                                            </div>
+
+                                            <br><br>
+                                            <b>간단 해석:</b>
+                                            - F1 기준 모델은 정밀도(Precision)와 재현율(Recall) 사이의 균형을 중시, 전체적인 예측 안정성이 우수함 (Recall: 0.984, F1: 0.966)<br>
+                                            - Recall 기준 모델은 불량을 놓치지 않는 것에 집중하여 민감도(Recall)가 높은 반면, Precision은 소폭 낮아짐 (Recall: 0.981, Precision: 0.944)<br>
+                                            - 상황에 따라 정확한 예측(F1)과 불량 최소 누락(Recall) 중 업무 목적에 맞게 선택 가능
+                                            """)
+                                        )
+
+                                    )
                                 ),
                                 ui.nav_spacer(),  # 선택
                             ui.nav_panel("🔓 로그아웃",  # ✅ 여기 추가!
@@ -1731,6 +1929,8 @@ def server(input, output, session):
                                 title = "LS 기가 펙토리"
                             )
                         )
+            
+        
             
             
 # ================================
