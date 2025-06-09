@@ -808,7 +808,65 @@ def server(input, output, session):
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', va='center', color='red')
             return fig
-        
+    
+    
+    # ========================================
+    # TAB 2 - [D] 이상치 × 불량 Confusion 스타일
+    # ========================================
+    @output
+    @render.ui
+    def anomaly_fail_rate_ui():
+        try:
+            # ✅ 실시간 갱신 트리거 (3초마다 갱신)
+            reactive.invalidate_later(1)
+
+            df = accumulator.get().get_data()  # ✅ 실시간 누적 데이터 가져오기
+
+            if df.empty:
+                return ui.div("📭 데이터 없음", class_="text-muted")
+
+            # ✅ Confusion 영역별 필터링
+            total = len(df)
+
+            count_a_f = len(df[(df["is_anomaly"] == -1) & (df["passorfail"] == 1)])  # 이상 + 불량
+            count_a_p = len(df[(df["is_anomaly"] == -1) & (df["passorfail"] == 0)])  # 이상 + 정상
+            count_n_f = len(df[(df["is_anomaly"] == 1) & (df["passorfail"] == 1)])  # 정상 + 불량
+            count_n_p = len(df[(df["is_anomaly"] == 1) & (df["passorfail"] == 0)])  # 정상 + 정상
+
+            # ✅ 비율 계산
+            def ratio(n): return f"{n}건 ({n/total:.2%})" if total > 0 else "0건 (0%)"
+
+            return ui.div(
+                [
+                    ui.h5("📊 이상 탐지 vs 불량 판정 매트릭스"),
+                    ui.tags.table(
+                        {"class": "table table-bordered text-center"},
+                        ui.tags.thead(
+                            ui.tags.tr(
+                                ui.tags.th("구분"),
+                                ui.tags.th("불량"),
+                                ui.tags.th("정상")
+                            )
+                        ),
+                        ui.tags.tbody([
+                            ui.tags.tr([
+                                ui.tags.th("이상치", {"class": "table-danger"}),
+                                ui.tags.td(ratio(count_a_f)),
+                                ui.tags.td(ratio(count_a_p))
+                            ]),
+                            ui.tags.tr([
+                                ui.tags.th("정상치", {"class": "table-success"}),
+                                ui.tags.td(ratio(count_n_f)),
+                                ui.tags.td(ratio(count_n_p))
+                            ])
+                        ])
+                    )
+                ]
+            )
+
+        except Exception as e:
+            return ui.div(f"⚠️ 오류 발생: {str(e)}", class_="text-danger")
+
     # ================================
     # TAB 2 - [D] 
     # ================================
@@ -1419,9 +1477,10 @@ def server(input, output, session):
                                         ui.output_plot("anomaly_variable_count", height="300px")
                                     ),
                                     
-                # [D] SHAP 해석, 변수 기여도 분석
+                # [D] [D] 이상치 내 불량률
                                     ui.card(
-                                        ui.card_header("[D] 이상치 탐지 알림 상세"),
+                                        ui.card_header("[D] 이상치 내 불량률"),
+                                        ui.output_ui("anomaly_fail_rate_ui")
                                         
                                     ),
                                     col_widths=[6, 6]
