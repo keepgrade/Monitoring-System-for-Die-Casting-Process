@@ -798,8 +798,8 @@ def server(input, output, session):
             # ✅ x축 설정
             ax.set_xticks(df_plot.index)
             ax.set_xticklabels(df_plot["Group"], rotation=45, ha='right')
-            ax.set_ylabel("공정 이상률")
-            ax.set_title(f"공정 이상률 관리도 (단위: {unit})")
+            ax.set_ylabel("공정 이상률",fontproperties=font_prop)
+            ax.set_title(f"공정 이상률 관리도 (단위: {unit})",fontproperties=font_prop)
             ax.grid(True, alpha=0.3)
             ax.legend(loc="upper right")
             fig.tight_layout(pad=2.5)
@@ -970,7 +970,7 @@ def server(input, output, session):
                 sizes, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90
             )
             ax.axis('equal')
-            ax.set_title(f"{selected_group} ({unit} 기준) 불량률")
+            ax.set_title(f"{selected_group} ({unit} 기준) 불량률",fontproperties=font_prop)
             ax.legend(wedges, labels, title="예측 결과", loc="upper right", bbox_to_anchor=(1.1, 1))
     
             return fig
@@ -1035,9 +1035,9 @@ def server(input, output, session):
             ax.bar(x, grouped.get('불량', [0]*len(grouped)), width,
                 bottom=grouped.get('양품', [0]*len(grouped)), label='불량', color='#F44336')
 
-            ax.set_xlabel('몰드 코드')
-            ax.set_ylabel('개수')
-            ax.set_title(f"{start_date} ~ {end_date} 몰드코드별 누적 예측 결과")
+            ax.set_xlabel('몰드 코드',fontproperties=font_prop)
+            ax.set_ylabel('개수',fontproperties=font_prop)
+            ax.set_title(f"{start_date} ~ {end_date} 몰드코드별 누적 예측 결과",fontproperties=font_prop)
             ax.set_xticks(x)
             ax.set_xticklabels(mold_codes, rotation=45, ha='right')
             ax.legend()
@@ -1229,9 +1229,9 @@ def server(input, output, session):
             ax.fill_between(labels, lcl, ucl, color='red', alpha=0.1)
 
 
-            ax.set_title(f"관리도 기반 불량률 분석 ({unit}) - 최근 20개")
-            ax.set_xlabel("시간 단위")
-            ax.set_ylabel("불량률")
+            ax.set_title(f"관리도 기반 불량률 분석 ({unit}) - 최근 20개",fontproperties=font_prop)
+            ax.set_xlabel("시간 단위",fontproperties=font_prop)
+            ax.set_ylabel("불량률",fontproperties=font_prop)
             ax.set_ylim(0, 1)
             ax.legend()
             ax.grid(True, alpha=0.3)
@@ -1323,8 +1323,8 @@ def server(input, output, session):
             fig, ax = plt.subplots()
             shap_series.plot(kind='barh', ax=ax)
             ax.invert_yaxis()
-            ax.set_title("SHAP 기여도 상위 변수")
-            ax.set_xlabel("기여도 크기 (절댓값 기준)")
+            ax.set_title("SHAP 기여도 상위 변수",fontproperties=font_prop)
+            ax.set_xlabel("기여도 크기 (절댓값 기준)",fontproperties=font_prop)
             return fig
 
         except Exception as e:
