@@ -392,10 +392,10 @@ def server(input, output, session):
                         ax.legend(loc="upper left")
                         ax.grid(True)
 
-                    axs[-1].set_xlabel("월-일 시:분")
-                    axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
-                    fig.autofmt_xdate()
+                    axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S')) 
+                    fig.autofmt_xdate(rotation=0, ha='center')  # ✅ 짤리지 않게 정렬
                     fig.tight_layout()
+                    fig.subplots_adjust(bottom=0.2) 
                     return fig
 
                 except Exception as e:
@@ -496,7 +496,8 @@ def server(input, output, session):
                         ui.div(
                             ui.h6(col.replace('_', ' ').title()),
                             ui.h4(
-                                f"{current_val:.1f} {arrow} ({diff:+.1f}, {percent_change:+.1f}%)",
+                                f"{current_val:.1f}",
+                                # {arrow} ({diff:+.1f}, {percent_change:+.1f}%)
                                 class_=color_class,
                                 style=f"color: {custom_color}; font-weight: bold;"
                             ),
