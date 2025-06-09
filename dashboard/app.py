@@ -660,9 +660,9 @@ def server(input, output, session):
 
             fig, ax = plt.subplots(figsize=(10, max(4, len(vars_) * 0.4)))  # 변수 수에 따라 높이 자동 조정
             bars = ax.barh(vars_, values)
-            ax.set_title("실시간 이상 변수 누적 카운트 (전체)")
-            ax.set_xlabel("횟수")
-            ax.set_ylabel("변수명")
+            ax.set_title("실시간 이상 변수 누적 카운트 (전체)",fontproperties=font_prop)
+            ax.set_xlabel("횟수",fontproperties=font_prop)
+            ax.set_ylabel("변수명",fontproperties=font_prop)
 
             for bar in bars:
                 width = bar.get_width()
