@@ -20,9 +20,10 @@ from shinywidgets import render_widget
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import os
-
+import pickle
 import shap
-
+from sklearn.impute import SimpleImputer
+from collections import Counter
 # 📍 server 구성 위쪽 (전역)
 selected_log_index = reactive.Value(None)
 
@@ -31,7 +32,7 @@ shap_explainer = shap.TreeExplainer(model_pipe.named_steps["classifier"])
 
 from pathlib import Path
 import matplotlib.font_manager as fm
-
+model = joblib.load("./dashboard/model.pkl")
 # 앱 디렉터리 설정
 app_dir = Path(__file__).parent
 
@@ -55,6 +56,27 @@ selected_cols = [
 ]
 df_selected = streaming_df[selected_cols].reset_index(drop=True)
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "www")
+
+
+cached_weather = {"time": None, "data": None}
+
+def get_cached_weather(registration_time_str):
+    global cached_weather
+    try:
+        # 문자열을 datetime으로 변환
+        reg_time = pd.to_datetime(registration_time_str)
+
+        # 캐시된 시간이 없거나 1시간 이상 차이 나면 업데이트
+        if cached_weather["time"] is None or abs(reg_time - cached_weather["time"]) > timedelta(hours=1):
+            new_weather = get_weather()  # 실제 날씨 API 호출
+            cached_weather = {
+                "time": reg_time,
+                "data": new_weather
+            }
+        return cached_weather["data"]
+    except Exception as e:
+        print(f"[❌ get_cached_weather 오류] {e}")
+        return "날씨 정보 없음"
 
 # ================================
 # 🖼️ 2. UI 정의
@@ -82,7 +104,7 @@ def server(input, output, session):
     login_status = reactive.Value(False)
     
     alert_logs = reactive.Value([])  # 실시간 경고 누적
-
+    anomaly_counter = reactive.Value(Counter())
     # ================================
     # 스트리밍 제어
     # ================================
@@ -188,12 +210,54 @@ def server(input, output, session):
 
             # 최신 데이터 한 행
             latest = df.iloc[-1]
-
+            # latest = pd.DataFrame([latest])
             if 'passorfail' not in latest:
                 print("⚠️ 'passorfail' 컬럼이 존재하지 않음")
                 return ui.div("예측값 없음", class_="text-muted")
 
-            # 결합 확률은 이미 'passorfail' 컬럼에 예측값이 0~1로 들어온다고 가정
+            # # ✅ Pipeline 추출
+            
+            # # registration_time을 datetime으로 변환
+            # latest["registration_time"] = pd.to_datetime(latest["registration_time"], errors="coerce")
+
+            # # 'time' (시:분), 'date' (연-월-일) 파생 컬럼 생성
+            # latest["registration_time"] = pd.to_datetime(latest["registration_time"], errors="coerce")
+
+            # # 'time' (시:분:초), 'date' (연-월-일) 파생 컬럼 생성
+            # latest["date"] = latest["registration_time"].dt.strftime("%H:%M:%S")   # 시:분:초
+            # latest["time"] = latest["registration_time"].dt.strftime("%Y-%m-%d")   # 연-월-일
+
+            # latest["registration_time"] = latest["registration_time"].astype(str)
+            
+            
+            # # 숫자형/범주형 컬럼 분리
+            # numeric_cols = latest.select_dtypes(include=['number']).columns
+            # categorical_cols = latest.select_dtypes(exclude=['number']).columns
+
+            # # 숫자형 결측값 평균으로 대체 (형태 일치하도록 DataFrame으로 변환)
+            # imputed_numeric = pd.DataFrame(
+            #     SimpleImputer(strategy="mean").fit_transform(latest[numeric_cols]),
+            #     columns=numeric_cols,
+            #     index=latest.index
+            # )
+            # latest[numeric_cols] = imputed_numeric
+
+            # # 범주형 결측값은 'Unknown'으로 대체
+            # latest[categorical_cols] = latest[categorical_cols].fillna("Unknown")
+            
+            # pipeline = model.best_estimator_
+
+            # preprocessor = pipeline.named_steps["preprocess"]
+            # numeric_cols = preprocessor.transformers_[0][2]
+            # categorical_cols = preprocessor.transformers_[1][2]
+            # model_features = numeric_cols + categorical_cols
+
+
+            # missing_cols = [col for col in model_features if col not in latest]
+
+            # # 예측값 계산
+            # X_live = latest[model_features]
+            # prob = model.predict_proba(X_live)[:, 1][0]  # 불량 확률
             prob = latest['passorfail']
             result = "불량" if prob >= 0.5 else "양품"
             icon = "❌" if result == "불량" else "✅"
@@ -255,8 +319,8 @@ def server(input, output, session):
             time_str = dt.strftime("%H:%M")
 
             # ✅ 날씨 문자열 반환 (예: "☁️ Seoul · 흐림 · 22℃ · 습도 40%")
-            weather_info = get_weather()
-            print("✅ get_weather():", weather_info)  # 디버깅용
+            weather_info = get_cached_weather(reg_time)
+            
 
             # ✅ 반드시 문자열 형태로 넣기
             return ui.card(
@@ -294,7 +358,8 @@ def server(input, output, session):
                     df = df[df["registration_time"] >= t_latest - pd.Timedelta(minutes=30)]
                     df = df.tail(30)
 
-                    cols_to_plot = [col for col in selected_cols if col in df.columns][:3]
+                    # cols_to_plot = [col for col in selected_cols if col in df.columns][:3]
+                    cols_to_plot = [col for col in sensor_labels.keys() if col in df.columns][:3]
                     if not cols_to_plot:
                         raise ValueError("시각화할 센서 컬럼이 없습니다.")
 
@@ -564,51 +629,48 @@ def server(input, output, session):
     @render.plot
     def anomaly_variable_count():
         try:
-            df = accumulator.get().get_data()
+            df = current_data.get()
             if df.empty:
                 fig, ax = plt.subplots()
                 ax.text(0.5, 0.5, "데이터 없음", ha='center', va='center')
                 return fig
 
-            # 이상 데이터만 필터링
-            if 'is_anomaly' in df.columns:
-                anomaly_df = df[df['is_anomaly'] == 1]
-            else:
-                # 임시로 상위 20% 데이터를 이상으로 간주
-                threshold = df['anomaly_score'].quantile(0.8) if 'anomaly_score' in df.columns else 0.8
-                anomaly_df = df[df.get('anomaly_score', 0) > threshold]
+            # ✅ 최신 데이터 한 줄
+            latest = df.iloc[-1]
 
-            if anomaly_df.empty:
+            # top1, top2, top3 변수명 추출
+            top_vars = [latest.get('top1'), latest.get('top2'), latest.get('top3')]
+            top_vars = [v for v in top_vars if pd.notna(v)]
+
+            # 누적 카운터 업데이트
+            counts = anomaly_counter.get()
+            counts.update(top_vars)
+            anomaly_counter.set(counts)
+
+
+            if not counts:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "이상 데이터 없음", ha='center', va='center')
+                ax.text(0.5, 0.5, "이상 변수 없음", ha='center', va='center')
                 return fig
 
-            # SHAP 기준 변수별 영향도 집계 (시뮬레이션)
-            variables = sensor_labels
-            counts = {}
-            
-            for var in variables:
-                # 각 이상 샘플에서 해당 변수가 가장 큰 영향을 준 횟수 계산
-                # 실제로는 SHAP 값을 사용하지만, 여기서는 시뮬레이션
-                counts[var] = np.random.randint(1, len(anomaly_df)//2)
+            # 전체 변수에 대해 정렬된 리스트 생성
+            sorted_items = counts.most_common()
+            vars_, values = zip(*sorted_items)
 
-            fig, ax = plt.subplots(figsize=(10, 6))
-            bars = ax.bar(counts.keys(), counts.values(), color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7'])
-            ax.set_title("주요 변수의 이상 발생 횟수 (SHAP 기반)",fontproperties=font_prop)
-            ax.set_xlabel("변수명")
-            ax.set_ylabel("이상 발생 횟수")
-            
-            # 막대 위에 값 표시
+            fig, ax = plt.subplots(figsize=(10, max(4, len(vars_) * 0.4)))  # 변수 수에 따라 높이 자동 조정
+            bars = ax.barh(vars_, values)
+            ax.set_title("실시간 이상 변수 누적 카운트 (전체)")
+            ax.set_xlabel("횟수")
+            ax.set_ylabel("변수명")
+
             for bar in bars:
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height + 0.1,
-                       f'{int(height)}', ha='center', va='bottom')
-            
-            plt.xticks(rotation=45)
+                width = bar.get_width()
+                ax.text(width + 0.2, bar.get_y() + bar.get_height()/2,
+                        f'{int(width)}', va='center')
+
             plt.tight_layout()
-            fig.subplots_adjust(top=0.85, bottom=0.3)  # 위쪽 15%, 아래쪽 30% 공간 확보
             return fig
-            
+
         except Exception as e:
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"오류: {str(e)}", ha='center', va='center')
@@ -1139,7 +1201,6 @@ def server(input, output, session):
     def shap_explanation_plot():
         try:
             reg_time = selected_log_time.get()
-            print("📌 선택된 판정 시간:", reg_time)
 
             if reg_time is None:
                 fig, ax = plt.subplots()
@@ -1150,7 +1211,6 @@ def server(input, output, session):
             df = current_data.get()
             df['registration_time'] = df['registration_time'].astype(str)
             row_match = df[df['registration_time'] == str(reg_time)]
-            print("📌 일치하는 판정 시간 개수:", len(row_match))
 
             if row_match.empty:
                 fig, ax = plt.subplots()
@@ -1209,7 +1269,6 @@ def server(input, output, session):
             return fig
 
         except Exception as e:
-            print("❌ SHAP plot error:", str(e))
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', color='red')
             return fig
