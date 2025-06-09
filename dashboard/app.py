@@ -428,7 +428,83 @@ def server(input, output, session):
                     ax.axis("off")
                     return fig
 
+        # ✅ 알림 로그 (상단 요약용)
+    @output
+    @render.ui
+    def current_prediction2():
+        try:
+            df = current_data.get()
+            if df.empty:
+                return ui.div("데이터 없음", class_="text-muted")
 
+            latest = df.iloc[-1]
+            latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
+
+            # ✅ registration_time 처리 및 파생 컬럼 생성
+            latest["registration_time"] = pd.to_datetime(latest["registration_time"], errors="coerce")
+            latest["time"] = latest["registration_time"].dt.strftime("%H:%M:%S")  # 시:분:초
+            latest["date"] = latest["registration_time"].dt.strftime("%Y-%m-%d")  # 연-월-일
+            latest["registration_time"] = latest["registration_time"].astype(str)
+
+            # ✅ 모델에서 사용한 컬럼 정보 추출
+            pipeline = model.best_estimator_
+            preprocessor = pipeline.named_steps["preprocess"]
+            numeric_features = preprocessor.transformers_[0][2]
+            categorical_features = preprocessor.transformers_[1][2]
+            model_features = numeric_features + categorical_features
+
+            # ✅ 누락된 컬럼 보완
+            for col in model_features:
+                if col not in latest.columns:
+                    latest[col] = 0.0 if col in numeric_features else "Unknown"
+
+            # ✅ 수치형 / 범주형 분리 (모델 기준으로)
+            numeric_cols = numeric_features
+            categorical_cols = categorical_features
+
+            # ✅ NaN-only 수치형 컬럼 제외 후 결측치 처리
+            valid_numeric_cols = [col for col in numeric_cols if not latest[col].isna().all()]
+
+            latest[valid_numeric_cols] = pd.DataFrame(
+                SimpleImputer(strategy="mean").fit_transform(latest[valid_numeric_cols]),
+                columns=valid_numeric_cols,
+                index=latest.index
+            )
+
+            # ✅ 범주형 결측치 처리
+            latest[categorical_cols] = latest[categorical_cols].fillna("Unknown")
+            # ✅ 모델 입력 형식 정렬
+            X_live = latest[model_features]
+
+            # ✅ 예측 수행
+            prob = model.predict_proba(X_live)[0, 1]
+            result = "불량" if prob >= 0.5 else "양품"
+            icon = "❌" if result == "불량" else "✅"
+            color_class = "alert alert-danger" if result == "불량" else "alert alert-success"
+
+            # ✅ 시간 표시 처리
+            try:
+                reg_time = pd.to_datetime(latest["registration_time"].values[0]).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as time_err:
+                print(f"⚠️ 시간 파싱 오류: {time_err}")
+                reg_time = "시간 정보 없음"
+
+            # ✅ 결과 UI 출력
+            return ui.div(
+                ui.div(
+                    ui.h6("🧾 실시간 품질 불량 판정"),
+                    ui.h4(f"{icon} {result}", class_="fw-bold"),
+                    class_="mb-2"
+                ),
+                ui.div(
+                    ui.input_action_button("goto_3page", "불량탐지 확인하기", class_="btn btn-sm btn-outline-primary")
+                ),
+                class_=f"{color_class} p-3 rounded"
+            )
+
+        except Exception as e:
+            print(f"⛔ current_prediction 오류 발생: {e}")
+            return ui.div(f"오류: {str(e)}", class_="text-danger")
     # ================================
     # TAP 1 [B] - 실시간 값 
     # ================================
@@ -701,7 +777,7 @@ def server(input, output, session):
             return fig
 
     # ================================
-    # TAB 2 [B]: 
+    # TAB 2 [A]: 
     # ================================
     @reactive.effect
     @reactive.event(current_data)
@@ -748,83 +824,6 @@ def server(input, output, session):
 
             timestamp = pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S")
 
-            
-            # ✅ 알림 로그 (상단 요약용)@output
-    @render.ui
-    def current_prediction2():
-        try:
-            df = current_data.get()
-            if df.empty:
-                return ui.div("데이터 없음", class_="text-muted")
-
-            latest = df.iloc[-1]
-            latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
-
-            # ✅ registration_time 처리 및 파생 컬럼 생성
-            latest["registration_time"] = pd.to_datetime(latest["registration_time"], errors="coerce")
-            latest["time"] = latest["registration_time"].dt.strftime("%H:%M:%S")  # 시:분:초
-            latest["date"] = latest["registration_time"].dt.strftime("%Y-%m-%d")  # 연-월-일
-            latest["registration_time"] = latest["registration_time"].astype(str)
-
-            # ✅ 모델에서 사용한 컬럼 정보 추출
-            pipeline = model.best_estimator_
-            preprocessor = pipeline.named_steps["preprocess"]
-            numeric_features = preprocessor.transformers_[0][2]
-            categorical_features = preprocessor.transformers_[1][2]
-            model_features = numeric_features + categorical_features
-
-            # ✅ 누락된 컬럼 보완
-            for col in model_features:
-                if col not in latest.columns:
-                    latest[col] = 0.0 if col in numeric_features else "Unknown"
-
-            # ✅ 수치형 / 범주형 분리 (모델 기준으로)
-            numeric_cols = numeric_features
-            categorical_cols = categorical_features
-
-            # ✅ NaN-only 수치형 컬럼 제외 후 결측치 처리
-            valid_numeric_cols = [col for col in numeric_cols if not latest[col].isna().all()]
-
-            latest[valid_numeric_cols] = pd.DataFrame(
-                SimpleImputer(strategy="mean").fit_transform(latest[valid_numeric_cols]),
-                columns=valid_numeric_cols,
-                index=latest.index
-            )
-
-            # ✅ 범주형 결측치 처리
-            latest[categorical_cols] = latest[categorical_cols].fillna("Unknown")
-            # ✅ 모델 입력 형식 정렬
-            X_live = latest[model_features]
-
-            # ✅ 예측 수행
-            prob = model.predict_proba(X_live)[0, 1]
-            result = "불량" if prob >= 0.5 else "양품"
-            icon = "❌" if result == "불량" else "✅"
-            color_class = "alert alert-danger" if result == "불량" else "alert alert-success"
-
-            # ✅ 시간 표시 처리
-            try:
-                reg_time = pd.to_datetime(latest["registration_time"].values[0]).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception as time_err:
-                print(f"⚠️ 시간 파싱 오류: {time_err}")
-                reg_time = "시간 정보 없음"
-
-            # ✅ 결과 UI 출력
-            return ui.div(
-                ui.div(
-                    ui.h6("🧾 실시간 품질 불량 판정"),
-                    ui.h4(f"{icon} {result}", class_="fw-bold"),
-                    class_="mb-2"
-                ),
-                ui.div(
-                    ui.input_action_button("goto_3page", "불량탐지 확인하기", class_="btn btn-sm btn-outline-primary")
-                ),
-                class_=f"{color_class} p-3 rounded"
-            )
-
-        except Exception as e:
-            print(f"⛔ current_prediction 오류 발생: {e}")
-            return ui.div(f"오류: {str(e)}", class_="text-danger")
             logs.append({
                 "time": timestamp,
                 "level": level.strip()
