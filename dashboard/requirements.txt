@@ -4,10 +4,14 @@ shinyswatch
 plotly
 seaborn
 pandas
-scikit-learn
+scikit-learn==1.6.1
 joblib
 folium
 geopandas
 shapely
 xgboost
 faicons==0.2.2
+numpy
+matplotlib
+shap
+path

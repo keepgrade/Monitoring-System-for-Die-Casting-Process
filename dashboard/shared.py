@@ -146,14 +146,14 @@ class StreamAccumulator:
 
 import requests
 
-def get_weather(lat=32.7767, lon=-96.7970):
+def get_weather(lat=36.65446, lon=127.4500):
     try:
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
             "latitude": lat,
             "longitude": lon,
             "current_weather": True,
-            "timezone": "America/Chicago"
+            "timezone": "Asia/Seoul"
         }
         response = requests.get(url, params=params, timeout=5)
 
@@ -183,7 +183,7 @@ def get_weather(lat=32.7767, lon=-96.7970):
         code = weather["weathercode"]
         emoji, desc = code_map.get(code, ("🌡️", "정보 없음"))
 
-        return f"텍사스 댈러스 | {emoji} {desc} | 외부온도 : {temp}℃  |  풍속 {windspeed}km/h"
+        return f"LS Electric 청주2공장 | {emoji} {desc} | 외부온도 : {temp}℃  |  풍속 {windspeed}km/h"
 
     except Exception as e:
         return f"❌ 예외 발생: {str(e)}"
