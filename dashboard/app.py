@@ -32,7 +32,14 @@ selected_log_index = reactive.Value(None)
 app_dir = Path(__file__).parent
 
 model_pipe = joblib.load(Path(__file__).parent / "www" / "model_pipe.pkl")
-shap_explainer = shap.TreeExplainer(model_pipe.named_steps["classifier"])
+
+
+model_pipeline = joblib.load("./www/model_pipeline.pkl")  # pipeline이 저장된 경로
+shap_explainer = shap.TreeExplainer(model_pipeline.named_steps["classifier"])
+
+if isinstance(model_pipe, dict):
+    print("📦 model_pipe 키 목록:", model_pipe.keys())
+
 
 model = joblib.load(Path(__file__).parent / "www" / "model_xgb.pkl")
 
@@ -174,7 +181,7 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("📭 실시간 데이터가 아직 수집되지 않았습니다.", class_="text-muted")
+                return ui.div("📭 데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
 
             latest = df.iloc[-1].copy()
 
@@ -234,7 +241,7 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("데이터 없음", class_="text-muted")
+                return ui.div("데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
 
             latest = df.iloc[-1]
             latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
@@ -835,8 +842,8 @@ def server(input, output, session):
             latest["level"] = level.strip()
             detail_logs.append(latest.to_dict())
 
-            alert_logs.set(logs[-10:])
-            anomaly_detail_logs.set(detail_logs[-10:])
+            alert_logs.set(logs[:])
+            anomaly_detail_logs.set(detail_logs[:])
             
 
     @reactive.effect
@@ -989,7 +996,7 @@ def server(input, output, session):
             df = accumulator.get().get_data()  # ✅ 실시간 누적 데이터 가져오기
 
             if df.empty:
-                return ui.div("📭 데이터 없음", class_="text-muted")
+                return ui.div("📭 데이터 없습니다.작업을 시작해주세요.", class_="text-muted")
 
             # ✅ Confusion 영역별 필터링
             total = len(df)
@@ -1322,21 +1329,6 @@ def server(input, output, session):
             style="max-height: 250px; overflow-y: auto;"
         )
     
-    #     for log in reversed(logs):  # 최신이 위에
-    #         table_rows.append(
-    #             ui.tags.tr(
-    #                 ui.tags.td(log["판정 시간"]),
-    #                 ui.tags.td(log["결과"]),
-    #             )
-    #         )
-
-    #     return ui.div(
-    #     ui.tags.table(
-    #         {"class": "table table-sm table-bordered table-striped mb-0"},
-    #         *table_rows
-    #     ),
-    #     style="max-height: 200px; overflow-y: auto;"  # 스크롤 설정
-    # )
 # ================================
     # TAP 3 [A] 단위 시간 당 불량 관리도
 # ================================ 
@@ -1426,7 +1418,7 @@ def server(input, output, session):
             return fig
 
 # ================================
-# TAP 3 [D]
+# TAP 3 [B]
 # ================================
     
     @reactive.Effect
@@ -1435,83 +1427,96 @@ def server(input, output, session):
             if input[f"log_{i}"]() > 0:
                 # 시간값을 기준으로 고유하게 선택하도록 설정
                 selected_log_time.set(log["판정 시간"])
-
     @output
     @render.plot
     def shap_explanation_plot():
         try:
             reg_time = selected_log_time.get()
-
+    
             if reg_time is None:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "불량 로그를 선택하세요", ha='center',fontproperties=font_prop)
+                ax.text(0.5, 0.5, "불량 로그를 선택하세요", ha='center', fontproperties=font_prop)
                 return fig
-
+    
             # 판정 시간 일치하는 row 찾기
             df = current_data.get()
             df['registration_time'] = df['registration_time'].astype(str)
             row_match = df[df['registration_time'] == str(reg_time)]
-
+    
             if row_match.empty:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "해당 시간의 입력값을 찾을 수 없습니다", ha='center',fontproperties=font_prop)
+                ax.text(0.5, 0.5, "해당 시간의 입력값을 찾을 수 없습니다", ha='center', fontproperties=font_prop)
                 return fig
-
-            # 로그에서 결과 확인
+    
             logs = list(reversed(prediction_table_logs.get()))
             log = next((l for l in logs if l["판정 시간"] == reg_time), None)
             if log is None:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "해당 로그를 찾을 수 없습니다", ha='center',fontproperties=font_prop)
+                ax.text(0.5, 0.5, "해당 로그를 찾을 수 없습니다", ha='center', fontproperties=font_prop)
                 return fig
-
+    
             if log["결과"] != "불량":
                 fig, ax = plt.subplots()
                 ax.axis("off")
-                ax.text(0.5, 0.5, "✅ 양품입니다\nSHAP 해석은 불량에만 제공됩니다", ha='center', va='center', color='gray',fontproperties=font_prop)
+                ax.text(0.5, 0.5, "✅ 양품입니다\nSHAP 해석은 불량에만 제공됩니다", ha='center', va='center', color='gray', fontproperties=font_prop)
                 return fig
-
+    
             # ============================
-            # SHAP 계산 로직은 동일
+            # SHAP 계산 로직
             # ============================
             input_row = row_match.iloc[0].drop(['passorfail', 'registration_time'], errors='ignore')
-
             required_features = model_pipe.feature_names_in_.tolist()
-            ct = model_pipe.named_steps["preprocess"]
-            cat_cols = ct.transformers_[1][2]
-
+    
+            # 범주형 변수 없을 경우 처리
+            try:
+                ct = model_pipe.named_steps["preprocess"]
+                cat_cols = ct.transformers_[1][2]  # 없으면 오류 → except로 처리
+            except Exception:
+                cat_cols = []
+    
+            # 누락된 컬럼 보완
             for col in required_features:
                 if col not in input_row:
                     input_row[col] = "0" if col in cat_cols else 0
             input_row = input_row[required_features]
-
+    
+            # 데이터프레임 구성 및 형 변환
             input_df = pd.DataFrame([input_row])
             for col in cat_cols:
                 if col in input_df.columns:
                     input_df[col] = input_df[col].astype(str)
-
+    
+            # 전처리 및 SHAP 계산
             X_transformed = model_pipe.named_steps["preprocess"].transform(input_df)
             shap_raw = shap_explainer.shap_values(X_transformed)
-
-            if isinstance(shap_raw, list) and len(shap_raw) > 1:
-                shap_val = shap_raw[1][0]
+    
+            # ✅ SHAP 값 안전하게 가져오기
+            if isinstance(shap_raw, list):
+                if len(shap_raw) == 1:
+                    shap_val = shap_raw[0][0]
+                else:
+                    shap_val = shap_raw[1][0]  # 일반적으로 1은 "불량" 클래스
             else:
-                shap_val = shap_raw[0] if isinstance(shap_raw, list) else shap_raw[0]
-
+                shap_val = shap_raw[0]
+    
+            # 변수 이름 정리 및 그래프
             feature_names = model_pipe.named_steps["preprocess"].get_feature_names_out()
             shap_series = pd.Series(shap_val, index=feature_names).abs().sort_values(ascending=False).head(5)
-
+            shap_series.index = shap_series.index.str.replace(r'^(num__|cat__)', '', regex=True)
+    
             fig, ax = plt.subplots()
             shap_series.plot(kind='barh', ax=ax)
             ax.invert_yaxis()
-            ax.set_title("SHAP 기여도 상위 변수",fontproperties=font_prop)
-            ax.set_xlabel("기여도 크기 (절댓값 기준)",fontproperties=font_prop)
+            ax.set_title("SHAP 기여도 상위 변수", fontproperties=font_prop)
+            ax.set_xlabel("기여도 크기 (절댓값 기준)", fontproperties=font_prop)
             return fig
-
+    
         except Exception as e:
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', color='red',fontproperties=font_prop)
+            ax.text(0.5, 0.5, f"오류 발생: {str(e)}", ha='center', color='red', fontproperties=font_prop)
             return fig
+    
+    
 
 
 
