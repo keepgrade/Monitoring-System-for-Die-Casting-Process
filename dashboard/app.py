@@ -440,7 +440,7 @@ def server(input, output, session):
                         
 
                         # ✅ 상한/하한선 표시 (단, code != "ALL"일 때만)
-                        if code != "ALL":
+                        if code != "ALL" and int(code) not in [8573, 8600]:
                             spec_row = spec_df_all[
                                 (spec_df_all["mold_code"] == int(code)) & (spec_df_all["variable"] == col)
                             ]
@@ -450,7 +450,6 @@ def server(input, output, session):
                                 ax.axhline(y=upper, color="red", linestyle="--", linewidth=1.2, label="상한")
                                 ax.axhline(y=lower, color="blue", linestyle="--", linewidth=1.2, label="하한")
 
-                        ax.set_ylabel(col)
                         ax.legend(loc="upper left")
                         ax.grid(True)
 
@@ -474,7 +473,7 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("데이터 없음", class_="text-muted")
+                return ui.div("📭 데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
 
             latest = df.iloc[-1]
             latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
@@ -531,7 +530,7 @@ def server(input, output, session):
             # ✅ 결과 UI 출력
             return ui.div(
                 ui.div(
-                    ui.h6("🧾 실시간 품질 불량 판정"),
+                    ui.h6("🧾 실시간 품질 불량 판별"),
                     ui.h4(f"{icon} {result}", class_="fw-bold"),
                     class_="mb-2"
                 ),
@@ -573,18 +572,18 @@ def server(input, output, session):
                 "EMS_operation_time": "#98df8a"             # EMS 작동 시간
             }
             sensor_korean_labels = {
-                "cast_pressure": ("주조 압력", "bar"),
-                "low_section_speed": ("저속 구간 속도", "mm/s"),
-                "biscuit_thickness": ("비스킷 두께", "mm"),
-                "molten_temp": ("용탕 온도", "℃"),
-                "high_section_speed": ("고속 구간 속도", "mm/s"),
-                "physical_strength": ("물리적 강도", "MPa"),
-                "facility_operation_cycleTime": ("설비 작동 사이클", "sec"),
-                "production_cycletime": ("생산 사이클 타임", "sec"),
-                "Coolant_temperature": ("냉각수 온도", "℃"),
-                "sleeve_temperature": ("슬리브 온도", "℃"),
-                "molten_volume": ("용탕 체적", "cc"),
-                "EMS_operation_time": ("EMS 작동 시간", "sec"),
+                "cast_pressure": ("주조 압력", "(bar)"),
+                "low_section_speed": ("저속 구간 속도", "(mm/s)"),
+                "biscuit_thickness": ("비스킷 두께", "(mm)"),
+                "molten_temp": ("용탕 온도", "(℃)"),
+                "high_section_speed": ("고속 구간 속도", "(mm/s)"),
+                "physical_strength": ("물리적 강도", "(MPa)"),
+                "facility_operation_cycleTime": ("설비 작동 사이클", "(sec)"),
+                "production_cycletime": ("생산 사이클 타임", "(sec)"),
+                "Coolant_temperature": ("냉각수 온도", "(℃)"),
+                "sleeve_temperature": ("슬리브 온도", "(℃)"),
+                "molten_volume": ("용탕 체적", "(cc)"),
+                "EMS_operation_time": ("EMS 작동 시간", "(sec)"),
             }
 
             cards = []
@@ -596,7 +595,8 @@ def server(input, output, session):
                     ui.div(
                         ui.h6("Mold Code"),
                         ui.h4(str(mold_code_val), class_="fw-bold"),
-                        class_="card p-3 mb-2 border border-info"
+                        class_="card p-3 mb-2 border border-info",
+                        style="min-width: 200px;" 
                     )
                 )
 
@@ -996,16 +996,24 @@ def server(input, output, session):
             # ax.set_xticklabels(df_plot["Group"], rotation=0, ha='right')
             
             # ✅ x축 설정
-            group_labels = df_plot["Group"]
+            if isinstance(df["time_group"].iloc[0], pd.Period):
+            # 주/월 단위 등 Period → Timestamp → 월-일 포맷
+                group_labels = df_plot["Group"].apply(lambda x: pd.Period(x).to_timestamp().strftime("%m-%d"))
+            elif pd.api.types.is_datetime64_any_dtype(df["time_group"]):
+                # 일/시 단위 등 datetime → 시:분:초 포맷
+                group_labels = pd.to_datetime(df_plot["Group"], errors='coerce').dt.strftime("%H:%M:%S")
+            else:
+                # 기타 타입 (예외 상황) → 문자열 처리
+                group_labels = df_plot["Group"].astype(str)
 
-            # datetime 또는 Period 타입이면 시:분:초로 포맷 변경
-            if pd.api.types.is_datetime64_any_dtype(df["time_group"]) or isinstance(df["time_group"].iloc[0], pd.Period):
-                group_labels = pd.to_datetime(group_labels, errors='coerce').dt.strftime("%H:%M:%S")
-
-            # ✅ 간격 두고 라벨 표시 (예: 3칸마다 하나씩)
-            tick_interval = 3
-            xticks = df_plot.index[::tick_interval]
-            xticklabels = group_labels[::tick_interval]
+            # ✅ 라벨 출력 간격 조건 분기
+            if unit in ["1시간", "3시간", "일"]:
+                tick_interval = 3
+                xticks = df_plot.index[::tick_interval]
+                xticklabels = group_labels[::tick_interval]
+            else:
+                xticks = df_plot.index
+                xticklabels = group_labels
 
             ax.set_xticks(xticks)
             ax.set_xticklabels(xticklabels, rotation=0, ha='right', fontsize=9)
@@ -1015,7 +1023,8 @@ def server(input, output, session):
             ax.grid(True, alpha=0.3)
             ax.legend(loc="upper right")
             fig.tight_layout(pad=2)
-            fig.subplots_adjust(left=0.05,bottom=0.1)  # ✅ 왼쪽 여백 확보
+            fig.subplots_adjust(left=0.1)  # ✅ 왼쪽 여백 확보
+            ax.margins(x=0)
             
             return fig
 
@@ -1053,7 +1062,7 @@ def server(input, output, session):
 
             return ui.div(
                 [
-                    ui.h5("📊 이상 탐지 vs 불량 판정 매트릭스"),
+                    ui.h5("이상 탐지 vs 불량 판정 매트릭스"),
                     ui.tags.table(
                         {"class": "table table-bordered text-center"},
                         ui.tags.thead(
@@ -1109,6 +1118,94 @@ def server(input, output, session):
         anomaly_detail_logs.set(logs)
         
     
+    # @output
+    # @render.ui
+    # def anomaly_detail_table():
+    #     try:
+    #         logs = anomaly_detail_logs.get()
+    #         if not logs:
+    #             return ui.div("⚠️ 이상치 상세 로그 없음", class_="text-muted")
+
+    #         rows = []
+
+    #         for row in reversed(logs):
+    #             level_value = row.get("anomaly_level", "없음")
+    #             reg_time_raw = row.get("registration_time", "")
+    #             try:
+    #                 time_value = pd.to_datetime(reg_time_raw).strftime("%Y-%m-%d %H:%M:%S")
+    #             except:
+    #                 time_value = str(reg_time_raw)
+
+    #             mold_code = row.get("mold_code", "미입력")
+
+    #             top_features = []
+    #             for i in range(1, 4):
+    #                 var = row.get(f"top{i}", "-")
+    #                 try:
+    #                     val = float(row.get(var, "-")) if var != "-" else "-"
+    #                 except:
+    #                     val = "-"
+
+    #                 # ▶️ IQR 상/하한 가져오기
+    #                 try:
+    #                     bounds_row = spec_df_all[
+    #                         (spec_df_all["mold_code"] == int(mold_code)) & 
+    #                         (spec_df_all["variable"] == var)
+    #                     ]
+    #                     lower = bounds_row["lower"].values[0]
+    #                     upper = bounds_row["upper"].values[0]
+    #                 except:
+    #                     lower = "-"
+    #                     upper = "-"
+
+    #                 top_features.append((f"TOP {i}", var, val, lower, upper))
+
+    #             level_color = "🔴" if level_value == "심각" else ("🟠" if level_value == "경도" else "✅")
+    #             bg_color = "#fff5f5" if level_value == "심각" else ("#fffdf5" if level_value == "경도" else "#f5fff5")
+
+    #             table_html = ui.tags.table(
+    #                 {"class": "table table-bordered table-sm mb-1"},
+    #                 ui.tags.thead(
+    #                     ui.tags.tr(
+    #                         ui.tags.th("순위"), ui.tags.th("변수명"),
+    #                         ui.tags.th("수치"), ui.tags.th("하한"), ui.tags.th("상한")
+    #                     )
+    #                 ),
+    #                 ui.tags.tbody(*[
+    #                     ui.tags.tr(
+    #                         ui.tags.td(rank),
+    #                         ui.tags.td(var),
+    #                         ui.tags.td(f"{val:.1f}" if isinstance(val, float) else val),
+    #                         ui.tags.td(f"{lower:.1f}" if isinstance(lower, float) else lower),
+    #                         ui.tags.td(f"{upper:.1f}" if isinstance(upper, float) else upper),
+    #                     ) for rank, var, val, lower, upper in top_features
+    #                 ])
+    #             )
+
+    #             rows.append(
+    #                 ui.div(
+    #                     ui.HTML(
+    #                         f"{level_color} <b>{level_value}</b> | 🕒 {time_value} | mold_code: <b>{mold_code}</b><br>"
+    #                     ),
+    #                     table_html,
+    #                     class_="border rounded p-2 mb-3",
+    #                     style=f"background-color: {bg_color};"
+    #                 )
+    #             )
+
+    #         return ui.div(*rows, class_="log-container", style="max-height: 450px; overflow-y: auto;")
+
+    #     except Exception as e:
+    #         return ui.div(f"❌ 로그 렌더링 오류: {str(e)}", class_="text-danger")
+
+
+    # @reactive.effect
+    # @reactive.event(input.clear_alerts2)
+    # def clear_alert_logs():
+    #     alert_logs.set([])               # 기존 경고/심각 로그 초기화
+    #     anomaly_detail_logs.set([])      # ✅ SHAP 상세 로그도 함께 초기화
+    
+    
     @output
     @render.ui
     def anomaly_detail_table():
@@ -1118,8 +1215,7 @@ def server(input, output, session):
                 return ui.div("⚠️ 이상치 상세 로그 없음", class_="text-muted")
 
             rows = []
-
-            for row in reversed(logs):
+            for idx, row in enumerate(reversed(logs)):
                 level_value = row.get("anomaly_level", "없음")
                 reg_time_raw = row.get("registration_time", "")
                 try:
@@ -1137,10 +1233,9 @@ def server(input, output, session):
                     except:
                         val = "-"
 
-                    # ▶️ IQR 상/하한 가져오기
                     try:
                         bounds_row = spec_df_all[
-                            (spec_df_all["mold_code"] == int(mold_code)) & 
+                            (spec_df_all["mold_code"] == int(mold_code)) &
                             (spec_df_all["variable"] == var)
                         ]
                         lower = bounds_row["lower"].values[0]
@@ -1176,25 +1271,37 @@ def server(input, output, session):
                 rows.append(
                     ui.div(
                         ui.HTML(
-                            f"{level_color} <b>{level_value}</b> | 🕒 {time_value} | mold_code: <b>{mold_code}</b><br>"
+                            f"{level_color} <b>{level_value}</b> | 🕒 {time_value} | mold_code: <b>{mold_code}</b>"
                         ),
                         table_html,
+                        ui.input_action_button(f"delete_alert_{idx}", "삭제", class_="btn btn-outline-danger btn-sm"),
                         class_="border rounded p-2 mb-3",
                         style=f"background-color: {bg_color};"
                     )
                 )
 
             return ui.div(*rows, class_="log-container", style="max-height: 450px; overflow-y: auto;")
-
         except Exception as e:
             return ui.div(f"❌ 로그 렌더링 오류: {str(e)}", class_="text-danger")
 
-
+    
     @reactive.effect
-    @reactive.event(input.clear_alerts2)
-    def clear_alert_logs():
-        alert_logs.set([])               # 기존 경고/심각 로그 초기화
-        anomaly_detail_logs.set([])      # ✅ SHAP 상세 로그도 함께 초기화
+    def delete_individual_alert():
+        logs = anomaly_detail_logs.get()
+        if not logs:
+            return
+
+        updated_logs = logs[:]
+        updated_alerts = alert_logs.get()[:]
+        
+        for i in range(len(logs)):
+            btn_id = f"delete_alert_{i}"
+            if input[btn_id]() > 0:
+                del updated_logs[i]
+                del updated_alerts[i]
+                anomaly_detail_logs.set(updated_logs)
+                alert_logs.set(updated_alerts)
+                break  # 한 번에 하나만 삭제
 
     # ================================
     # TAB 3 - [A] : 품질 분석
@@ -1263,9 +1370,9 @@ def server(input, output, session):
                 df_vis['group'] = df_vis['datetime'].dt.to_period('M').astype(str)
 
             unique_groups = sorted(df_vis['group'].dropna().unique())
-            return ui.input_select("selected_group", "📆 조회할 기간 선택", choices=unique_groups, selected=unique_groups[-1] if unique_groups else None)
+            return ui.input_select("selected_group", "조회할 기간 선택", choices=unique_groups, selected=unique_groups[-1] if unique_groups else None)
         except:
-            return ui.input_select("selected_group", "📆 조회할 기간 선택", choices=["선택 불가"], selected=None)
+            return ui.input_select("selected_group", "조회할 기간 선택", choices=["선택 불가"], selected=None)
 
     @output
     @render.plot
@@ -1306,10 +1413,11 @@ def server(input, output, session):
             ax.set_ylabel('개수',fontproperties=font_prop)
             ax.set_title(f"{start_date} ~ {end_date} 몰드코드별 누적 예측 결과",fontproperties=font_prop)
             ax.set_xticks(x)
-            ax.set_xticklabels(mold_codes, rotation=45, ha='right')
+            ax.set_xticklabels(mold_codes, rotation=0, ha='right')
             ax.legend()
 
             fig.tight_layout()
+            fig.subplots_adjust(bottom=0.15)
             return fig
 
         except Exception as e:
@@ -1503,8 +1611,11 @@ def server(input, output, session):
             ax.set_ylim(y_min, y_max)
             ax.legend()
             ax.grid(True, alpha=0.3)
-            plt.xticks(rotation=45)
+            ax.set_xticks(range(0, len(labels), 3))  # ✅ 3칸마다 하나만 보여줌
+            ax.set_xticklabels(labels[::3], fontproperties=font_prop, rotation=0)
             plt.tight_layout()
+            fig.subplots_adjust(left=0.08,bottom=0.15)
+            ax.margins(x=0)
             return fig
 
         except Exception as e:
@@ -1561,7 +1672,7 @@ def server(input, output, session):
             if log["결과"] != "불량":
                 fig, ax = plt.subplots()
                 ax.axis("off")
-                ax.text(0.5, 0.5, "✅ 양품입니다\nSHAP 해석은 불량에만 제공됩니다", ha='center', va='center', color='gray', fontproperties=font_prop)
+                ax.text(0.5, 0.5, "양품입니다\nSHAP 해석은 불량에만 제공됩니다", ha='center', va='center', color='gray', fontproperties=font_prop)
                 return fig
     
             # ============================
@@ -1686,16 +1797,15 @@ def server(input, output, session):
             )
         ),
         ui.div(
-            ui.div(ui.output_ui("anomaly_alerts"), class_="flex-fill", style="min-width: 0;"),
-            ui.div(ui.output_ui("current_prediction2"), class_="flex-fill", style="min-width: 0;"),
-            ui.div(ui.output_ui("current_weather"), class_="flex-fill", style="min-width: 0;"),
-            class_="d-flex gap-3 align-items-stretch",
-            style="width: 100%;"
+            ui.div(ui.output_ui("anomaly_alerts"), class_="col-2"),
+            ui.div(ui.output_ui("current_prediction2"), class_="col-2"),
+            ui.div(ui.output_ui("current_weather"), class_="col-8"),
+            class_="row g-3 align-items-stretch",
         ),
                                 ui.layout_columns(
                                     # [A] 실시간 그래프
                                     ui.card(
-                                    ui.card_header("[A] 실시간 센서 스트리밍"),
+                                    ui.card_header("실시간 센서 스트리밍"),
                                         ui.div(
                                             # 왼쪽: 탭 그래프
                                             ui.div(
@@ -1703,7 +1813,7 @@ def server(input, output, session):
                                                     id="selected_sensor_cols",
                                                     label="시각화할 센서 선택",
                                                     choices=list(sensor_labels.keys()),  # ✅ 튜플 대신 문자열 리스트
-                                                    selected=[list(sensor_labels.keys())[0]],  # ✅ 기본 선택도 문자열 리스트
+                                                    selected=[list(sensor_labels.keys())[0],list(sensor_labels.keys())[1],list(sensor_labels.keys())[2]],  # ✅ 기본 선택도 문자열 리스트
                                                     inline=True
                                                 ),
                                                 ui.navset_tab(
@@ -1730,7 +1840,7 @@ def server(input, output, session):
                                 ),
                                 # [C] 실시간 로그
                                 ui.card(
-                                    ui.card_header("[C] 실시간 로그"),
+                                    ui.card_header("실시간 로그"),
                                     ui.div(
                                         ui.h5("실시간 로그"),
                                         ui.output_table("recent_data_table"),
@@ -1746,22 +1856,22 @@ def server(input, output, session):
                                 ui.layout_columns(
                                     #TAB 2 [C] 시간에 따른 이상 분석
                                     ui.card(
-                                        ui.card_header("[A] 이상 탐지 알림"),
+                                        ui.card_header("이상 탐지 알림"),
                                         ui.output_ui("log_alert_for_defect"),
                                         ui.output_ui("anomaly_detail_table"),
-                                        ui.input_action_button("clear_alerts", "✅ 알림 확인", class_="btn btn-sm btn-secondary")
+                                        # ui.input_action_button("clear_alerts", "✅ 알림 확인", class_="btn btn-sm btn-secondary")
                                     ),
                                     # TAB 2 [B] 이상 탐지 알림
                                     
                                     ui.card(
-                                        ui.card_header("[B] 주요 변수의 이상 발생 횟수"),
+                                        ui.card_header("주요 변수의 이상 발생 횟수"),
                                         ui.output_plot("anomaly_variable_count", height="300px")
                                     ),
                                     col_widths=[6, 6]
                                 ),
                                 ui.layout_columns(
                                     ui.card(
-                                        ui.card_header("[C] 시간에 따른 이상 분석"),
+                                        ui.card_header("시간에 따른 이상 분석"),
                                         ui.div(
                                             ui.input_select(
                                                 "anomaly_chart_time_unit", 
@@ -1776,7 +1886,7 @@ def server(input, output, session):
                                     
                 # [D] [D] 이상치 내 불량률
                                     ui.card(
-                                        ui.card_header("[D] 이상치 내 불량률"),
+                                        ui.card_header("이상치 내 불량률"),
                                         ui.output_ui("anomaly_fail_rate_ui")
                                         
                                     ),
@@ -1791,13 +1901,13 @@ def server(input, output, session):
                                     # TAB 3 [A] 
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[A] 품질 불량 판별"),
+                                            ui.card_header("품질 불량 판별"),
                                             ui.output_ui("current_prediction"),
                                             ui.output_ui("prediction_log_table")
                                         ),
                                         # TAB 3 [B]
                                         ui.card(# TAB 3 [D]# TAB 3 [D]# TAB 3 [D]# TAB 3 [D]
-                                            ui.card_header("[B] SHAP 변수 기여도 분석"),
+                                            ui.card_header("SHAP 변수 기여도 분석"),
                                             ui.output_plot("shap_explanation_plot")
                                             
                                         )
@@ -1806,7 +1916,7 @@ def server(input, output, session):
                                     # TAB 3 [C]
                                     ui.layout_columns(
                                         ui.card(
-                                            ui.card_header("[C] 단위 시간 당 불량 관리도"),
+                                            ui.card_header("단위 시간 당 불량 관리도"),
                                             ui.input_select(
                                                 "fail_time_unit", 
                                                 "시간 단위 선택", 
@@ -1816,10 +1926,10 @@ def server(input, output, session):
                                             ui.output_plot("fail_rate_by_time", height="350px"),
                                         ),
                                         ui.card(
-                                            ui.card_header("[D] 몰드 코드별 품질 불량 횟수"),
+                                            ui.card_header("몰드 코드별 품질 불량 횟수"),
                                             ui.input_date_range(
                                                 "date_range", 
-                                                "📅 기간 선택", 
+                                                "기간 선택", 
                                                 start="2019-02-21",  # 데이터 시작일
                                                 end="2019-03-12",    # 데이터 종료일 # 기본값
                                             ),
@@ -1984,7 +2094,7 @@ def server(input, output, session):
                                 )
                             ),
                                 id="main_nav",
-                                title = "LS 기가 펙토리"
+                                title = "LS 기가 팩토리"
                             )
                         )
             
