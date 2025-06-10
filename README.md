@@ -1,3 +1,4 @@
+▶️ [Shiny 대시보드 바로가기](https://han-gyumin.shinyapps.io/diecasting1/)
 
 # 🏭 Monitoring System for Die Casting Process
 
