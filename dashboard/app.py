@@ -1045,7 +1045,7 @@ def server(input, output, session):
     @render.ui
     def anomaly_fail_rate_ui():
         try:
-            # ✅ 실시간 갱신 트리거 (3초마다 갱신)
+            # ✅ 실시간 갱신 트리거 (1초마다 갱신)
             reactive.invalidate_later(1)
 
             df = accumulator.get().get_data()  # ✅ 실시간 누적 데이터 가져오기
