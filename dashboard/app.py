@@ -27,9 +27,7 @@ from collections import Counter
 from pathlib import Path
 import matplotlib.font_manager as fm
 from sklearn.pipeline import Pipeline
-import uuid
-import time
-import random
+
 # 📍 server 구성 위쪽 (전역)
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "www")
 selected_log_index = reactive.Value(None)
@@ -215,7 +213,7 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("📭 데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
+                return ui.div("데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
 
             latest = df.iloc[-1].copy()
 
@@ -258,7 +256,7 @@ def server(input, output, session):
 
             return ui.div(
                 ui.div(
-                    ui.h6("🧾 실시간 공정 이상 탐지"),
+                    ui.h6("실시간 공정 이상 탐지"),
                     ui.h4(f"{icon} {anomaly_score}", class_="fw-bold"),
                     ui.input_action_button("goto_2page", "이상탐지 확인하기", class_="btn btn-sm btn-outline-primary"),
                     class_=f"{color_class} p-3 rounded"
@@ -331,7 +329,7 @@ def server(input, output, session):
             # ✅ 결과 UI 출력
             return ui.div(
                 ui.div(
-                    ui.h6("🧾 실시간 품질 불량 판정"),
+                    ui.h6("실시간 품질 불량 판정"),
                     ui.h4(f"{icon} {result}", class_="fw-bold"),
                     class_="mb-2"
                 ),
@@ -367,7 +365,7 @@ def server(input, output, session):
             df = current_data.get()
             if df.empty:
                 return ui.card(
-                    ui.div("📡 센서 데이터 없음 · 날씨 확인 불가", class_="p-1 bg-light shadow-sm rounded h-100")
+                    ui.div("센서 데이터 없음 · 날씨 확인 불가", class_="p-1 bg-light shadow-sm rounded h-100")
                 )
 
             # 최신 데이터의 시간 정보
@@ -389,7 +387,7 @@ def server(input, output, session):
             # ✅ 반드시 문자열 형태로 넣기
             return ui.card(
                 ui.div([
-                    ui.p(f"📅 {date_str} · ⏰ {time_str}", class_="p-1 bg-light shadow-sm rounded h-100"),
+                    ui.p(f"일자 {date_str} · 시간 {time_str}", class_="p-1 bg-light shadow-sm rounded h-100"),
                     ui.p(weather_info, class_="fw-bold fs-5")
                 ], class_="p-3")
             )
@@ -420,7 +418,7 @@ def server(input, output, session):
                     # ✅ 최근 30분 + tail(30)
                     t_latest = df["registration_time"].max()
                     df = df[df["registration_time"] >= t_latest - pd.Timedelta(minutes=30)]
-                    df = df.tail(30)
+                    df = df.tail(20)
 
                     # ✅ 사용자가 선택한 변수
                     selected_cols = input.selected_sensor_cols()
@@ -453,7 +451,7 @@ def server(input, output, session):
                                 ax.axhline(y=upper, color="red", linestyle="--", linewidth=1.2, label="상한")
                                 ax.axhline(y=lower, color="blue", linestyle="--", linewidth=1.2, label="하한")
 
-                        ax.legend(loc="upper left")
+                        ax.legend(loc="upper left",prop=font_prop)
                         ax.grid(True)
 
                     axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S')) 
@@ -476,7 +474,7 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("📭 데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
+                return ui.div("데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
 
             latest = df.iloc[-1]
             latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
@@ -533,7 +531,7 @@ def server(input, output, session):
             # ✅ 결과 UI 출력
             return ui.div(
                 ui.div(
-                    ui.h6("🧾 실시간 품질 불량 판별"),
+                    ui.h6("실시간 품질 불량 판별"),
                     ui.h4(f"{icon} {result}", class_="fw-bold"),
                     class_="mb-2"
                 ),
@@ -575,18 +573,18 @@ def server(input, output, session):
                 "EMS_operation_time": "#98df8a"             # EMS 작동 시간
             }
             sensor_korean_labels = {
-                "cast_pressure": ("주조 압력", "(bar)"),
-                "low_section_speed": ("저속 구간 속도", "(mm/s)"),
-                "biscuit_thickness": ("비스킷 두께", "(mm)"),
-                "molten_temp": ("용탕 온도", "(℃)"),
-                "high_section_speed": ("고속 구간 속도", "(mm/s)"),
-                "physical_strength": ("물리적 강도", "(MPa)"),
-                "facility_operation_cycleTime": ("설비 작동 사이클", "(sec)"),
-                "production_cycletime": ("생산 사이클 타임", "(sec)"),
-                "Coolant_temperature": ("냉각수 온도", "(℃)"),
-                "sleeve_temperature": ("슬리브 온도", "(℃)"),
-                "molten_volume": ("용탕 체적", "(cc)"),
-                "EMS_operation_time": ("EMS 작동 시간", "(sec)"),
+                "cast_pressure": ("cast pressure", "(bar)"),
+                "low_section_speed": ("low section speed", "(mm/s)"),
+                "biscuit_thickness": ("biscuit thickness", "(mm)"),
+                "molten_temp": ("molten_temp", "(℃)"),
+                "high_section_speed": ("high_section_speed", "(mm/s)"),
+                "physical_strength": ("physical_strength", "(MPa)"),
+                "facility_operation_cycleTime": ("facility_operation_cycleTime", "(sec)"),
+                "production_cycletime": ("production_cycletime", "(sec)"),
+                "Coolant_temperature": ("Coolant_temperature", "(℃)"),
+                "sleeve_temperature": ("sleeve_temperature", "(℃)"),
+                "molten_volume": ("molten_volume", "(cc)"),
+                "EMS_operation_time": ("EMS_operation_time", "(sec)"),
             }
 
             cards = []
@@ -670,9 +668,6 @@ def server(input, output, session):
                 'passorfail',
                 'is_anomaly',
                 'anomaly_level',
-                'passorfail',
-                'is_anomaly',
-                'anomaly_level',
                 'physical_strength',
                 'heating_furnace',
                 'tryshot_signal',
@@ -732,7 +727,7 @@ def server(input, output, session):
                 "xlsx": "Excel",
                 "pdf": "PDF"
             }, selected="csv"),
-            ui.download_button("download_recent_data", "📥 최근 로그 다운로드")
+            ui.download_button("download_recent_data", "최근 로그 다운로드")
         )
     # ================================
     # TAP 1 [C] - 실시간 선택 다운로드 로직  
@@ -1056,7 +1051,7 @@ def server(input, output, session):
             df = accumulator.get().get_data()  # ✅ 실시간 누적 데이터 가져오기
 
             if df.empty:
-                return ui.div("📭 데이터 없습니다.작업을 시작해주세요.", class_="text-muted")
+                return ui.div("데이터 없습니다.작업을 시작해주세요.", class_="text-muted")
 
             # ✅ Confusion 영역별 필터링
             total = len(df)
@@ -1272,16 +1267,10 @@ def server(input, output, session):
         delete_id = selected_for_deletion.get()
         if delete_id:
             logs = anomaly_detail_logs.get() or []
-            print(f"삭제 대상 ID: {delete_id}")
-            print(f"현재 로그 ID들: {[log.get('log_id', 'NO_ID') for log in logs]}")
+            
             
             updated_logs = [log for log in logs if log.get("log_id") != delete_id]
-            print(f"삭제 시도: {delete_id}, 기존 로그 수: {len(logs)}, 삭제 후: {len(updated_logs)}")
             
-            if len(updated_logs) == len(logs):
-                print(f"⚠️ 삭제 실패: ID '{delete_id}'를 가진 로그를 찾을 수 없음")
-            else:
-                print(f"✅ 삭제 성공: {len(logs) - len(updated_logs)}개 로그 삭제됨")
             
             anomaly_detail_logs.set(updated_logs)
             selected_for_deletion.set("")  # 리셋
@@ -1346,7 +1335,7 @@ def server(input, output, session):
                     {"class": "table table-bordered table-sm mb-1"},
                     ui.tags.thead(
                         ui.tags.tr(
-                            ui.tags.th("순위"), ui.tags.th("변수명"),
+                            ui.tags.th("순위"), ui.tags.th("센서"),
                             ui.tags.th("수치"), ui.tags.th("하한"), ui.tags.th("상한")
                         )
                     ),
@@ -1373,7 +1362,7 @@ def server(input, output, session):
                 # 헤더와 삭제 버튼이 포함된 div
                 header_div = ui.div(
                     ui.div(
-                        ui.HTML(f"{level_color} <b>{level_value}</b> | 🕒 {time_value} | mold_code: <b>{mold_code}</b>"),
+                        ui.HTML(f"{level_color} <b>{level_value}</b> |  {time_value} | mold_code: <b>{mold_code}</b>"),
                         style="flex: 1;"
                     ),
                     ui.HTML(delete_js),
@@ -1536,7 +1525,7 @@ def server(input, output, session):
             ax.set_title(f"{start_date} ~ {end_date} 몰드코드별 누적 예측 결과",fontproperties=font_prop)
             ax.set_xticks(x)
             ax.set_xticklabels(mold_codes, rotation=0, ha='right')
-            ax.legend()
+            ax.legend(prop=font_prop)
 
             fig.tight_layout()
             fig.subplots_adjust(bottom=0.15)
@@ -1583,12 +1572,12 @@ def server(input, output, session):
 
             return ui.div(
                 ui.div(
-                    ui.h6("🧾 판정 결과"),
+                    ui.h6("판정 결과"),
                     ui.h4(f"{icon} {result}", class_="fw-bold"),
                     class_="mb-2"
                 ),
                 ui.div(
-                    ui.h6("🕒 판정 시간"),
+                    ui.h6("판정 시간"),
                     ui.p(reg_time)
                 ),
                 class_=f"{color_class} p-3 rounded"
@@ -1731,7 +1720,7 @@ def server(input, output, session):
                 y_max = min(1.0, max_val + y_margin)
 
             ax.set_ylim(y_min, y_max)
-            ax.legend()
+            ax.legend(prop=font_prop)
             ax.grid(True, alpha=0.3)
             ax.set_xticks(range(0, len(labels), 3))  # ✅ 3칸마다 하나만 보여줌
             ax.set_xticklabels(labels[::3], fontproperties=font_prop, rotation=0)
@@ -1981,7 +1970,7 @@ def server(input, output, session):
                                         ui.card_header("이상 탐지 알림"),
                                         ui.output_ui("log_alert_for_defect"),
                                         ui.output_ui("anomaly_detail_table"),
-                                        ui.input_action_button("clear_alerts", "✅ 알림 확인", class_="btn btn-sm btn-secondary")
+                                        ui.input_action_button("clear_alerts", "알림 확인", class_="btn btn-sm btn-secondary")
                                     ),
                                     # TAB 2 [B] 이상 탐지 알림
                                     
@@ -2029,7 +2018,7 @@ def server(input, output, session):
                                         ),
                                         # TAB 3 [B]
                                         ui.card(# TAB 3 [D]# TAB 3 [D]# TAB 3 [D]# TAB 3 [D]
-                                            ui.card_header("SHAP 변수 기여도 분석"),
+                                            ui.card_header("품질 불량 판별 주요 센서"),
                                             ui.output_plot("shap_explanation_plot")
                                             
                                         )
@@ -2086,7 +2075,7 @@ def server(input, output, session):
                                             1449번 등 명확한 이상행, upper3/lower3 변수 전체 제거<br>
                                             EMS_operation_time = 0인 행 삭제<br>
                                             heating_furnace, tryshot_signal 결측치 → 'unknown'으로 대체<br>
-                                            불균형 데이터 (정상:불량 비율 고려) → XGBoost scale_pos_weight = 정상/불량 (예: 9800/200 = 49)로 조정
+                                            불균형 데이터 (정상:불량 비율 고려) → XGBoost scale_pos_weight = 정상/불량 (예: 70,333/3,279 = 21.45)로 조정
 
                                             <hr>
                                             <h5>전처리 결과 시각화 보기</h5>
@@ -2112,7 +2101,7 @@ def server(input, output, session):
                                             <b>Isolation Forest (이상 탐지):</b>
                                             mold_code별로 개별 모델 학습 및 예측<br>
                                             수치형 변수만 추출해 결측값은 평균으로 대체<br>
-                                            contamination=0.05, random_state=42 설정<br>
+                                            contamination=0.1, random_state=42 설정<br>
                                             예측 결과로 is_anomaly (-1: 이상치, 1: 정상) 생성<br>
                                             decision_function 기반 anomaly_score 계산<br>
                                             anomaly_score 분위수 기준으로 anomaly_level(정상/경도/심각) 분류<br><br>
