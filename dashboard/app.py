@@ -1293,12 +1293,15 @@ def server(input, output, session):
 
         updated_logs = logs[:]
         updated_alerts = alert_logs.get()[:]
-        
-        for i in range(len(logs)):
+        total = len(logs)
+
+        for i in range(total):
             btn_id = f"delete_alert_{i}"
             if input[btn_id]() > 0:
-                del updated_logs[i]
-                del updated_alerts[i]
+                # reversed(logs)의 i번째 항목은 logs의 (total - 1 - i)번째
+                true_idx = total - 1 - i
+                del updated_logs[true_idx]
+                del updated_alerts[true_idx]
                 anomaly_detail_logs.set(updated_logs)
                 alert_logs.set(updated_alerts)
                 break  # 한 번에 하나만 삭제
