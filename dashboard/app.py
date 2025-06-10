@@ -426,7 +426,7 @@ def server(input, output, session):
                         
 
                         # ✅ 상한/하한선 표시 (단, code != "ALL"일 때만)
-                        if code != "ALL":
+                        if code != "ALL" and int(code) not in [8573, 8600]:
                             spec_row = spec_df_all[
                                 (spec_df_all["mold_code"] == int(code)) & (spec_df_all["variable"] == col)
                             ]
@@ -436,8 +436,7 @@ def server(input, output, session):
                                 ax.axhline(y=upper, color="red", linestyle="--", linewidth=1.2, label="상한")
                                 ax.axhline(y=lower, color="blue", linestyle="--", linewidth=1.2, label="하한")
 
-                        ax.set_ylabel(col)
-                        ax.legend(loc="upper left")
+                        ax.legend(loc="upper left", prop=font_prop)
                         ax.grid(True)
 
                     axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S')) 
@@ -460,7 +459,7 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("데이터 없음", class_="text-muted")
+                return ui.div("📭 데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
 
             latest = df.iloc[-1]
             latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
@@ -539,7 +538,7 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("데이터 없음", class_="text-muted")
+                return ui.div("📭 데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
 
             latest = df.iloc[-1] if len(df) > 0 else None
             prev = df.iloc[-2] if len(df) > 1 else latest
@@ -1006,7 +1005,8 @@ def server(input, output, session):
             ax.grid(True, alpha=0.3)
             ax.legend(loc="upper right")
             fig.tight_layout(pad=2)
-            fig.subplots_adjust(left=0.05,bottom=0.1)  # ✅ 왼쪽 여백 확보
+            fig.subplots_adjust(left=0.12,bottom=0.1)  # ✅ 왼쪽 여백 확보
+            ax.margins(x=0)
             
             return fig
 
@@ -1263,10 +1263,11 @@ def server(input, output, session):
             ax.set_ylabel('개수',fontproperties=font_prop)
             ax.set_title(f"{start_date} ~ {end_date} 몰드코드별 누적 예측 결과",fontproperties=font_prop)
             ax.set_xticks(x)
-            ax.set_xticklabels(mold_codes, rotation=45, ha='right')
+            ax.set_xticklabels(mold_codes, rotation=0, ha='right')
             ax.legend()
 
             fig.tight_layout()
+            fig.subplots_adjust(bottom=0.25)
             return fig
 
         except Exception as e:
@@ -1436,7 +1437,9 @@ def server(input, output, session):
             ax.plot(labels, ucl, linestyle='--', label="UCL", color='red')
             ax.plot(labels, lcl, linestyle='--', label="LCL", color='red')
             ax.fill_between(labels, lcl, ucl, color='red', alpha=0.1)
-
+            # 라벨 간격 조절
+            ax.set_xticks(ax.get_xticks()[::3])  # 라벨을 2개 중 1개만 표시 (필요 시 숫자 조절)
+            ax.margins(x=0)
 
             ax.set_title(f"관리도 기반 불량률 분석 ({unit}) - 최근 20개",fontproperties=font_prop)
             ax.set_xlabel("시간 단위",fontproperties=font_prop)
@@ -1460,8 +1463,9 @@ def server(input, output, session):
             ax.set_ylim(y_min, y_max)
             ax.legend()
             ax.grid(True, alpha=0.3)
-            plt.xticks(rotation=45)
+            plt.xticks(rotation=0)
             plt.tight_layout()
+            fig.subplots_adjust(left=0.08, bottom=0.15)
             return fig
 
         except Exception as e:

@@ -1,11 +1,11 @@
 {
     "https://api.shinyapps.io": {
         "server_url": "https://api.shinyapps.io",
-        "filename": "C:\\Users\\User\\Desktop\\Monitoring-System-for-Die-Casting-Process\\dashboard",
-        "app_url": "https://lsbig10.shinyapps.io/msdc-5/",
-        "app_id": 14903470,
+        "filename": "C:\\Users\\USER\\Desktop\\diecasting_pjt\\Monitoring-System-for-Die-Casting-Process\\dashboard",
+        "app_url": "https://han-gyumin.shinyapps.io/diecasting_pjt1/",
+        "app_id": 14905015,
         "app_guid": null,
-        "title": "msdc-5",
+        "title": "diecasting_pjt",
         "app_mode": "python-shiny",
         "app_store_version": 1
     }
