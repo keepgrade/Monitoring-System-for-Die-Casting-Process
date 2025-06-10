@@ -27,7 +27,9 @@ from collections import Counter
 from pathlib import Path
 import matplotlib.font_manager as fm
 from sklearn.pipeline import Pipeline
-
+import uuid
+import time
+import random
 # 📍 server 구성 위쪽 (전역)
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "www")
 selected_log_index = reactive.Value(None)
@@ -149,6 +151,7 @@ def server(input, output, session):
     anomaly_counter = reactive.Value(Counter())
 
     log_button_clicks = reactive.Value({})
+    delete_clicks = reactive.Value({})
     # ================================
     # 스트리밍 제어
     # ================================
@@ -666,9 +669,28 @@ def server(input, output, session):
                 'biscuit_thickness',
                 'passorfail',
                 'is_anomaly',
-                'anomaly_level'
+                'anomaly_level',
+                'passorfail',
+                'is_anomaly',
+                'anomaly_level',
+                'physical_strength',
+                'heating_furnace',
+                'tryshot_signal',
+                'lower_mold_temp2',
+                'facility_operation_cycleTime',
+                'upper_mold_temp2',
+                'production_cycletime',
+                'count',
+                'Coolant_temperature',
+                'sleeve_temperature',
+                'molten_volume',
+                'upper_mold_temp1',
+                'EMS_operation_time',
+                'lower_mold_temp1', 
+                'working'
             ]
-
+        # 고속 구간 속도
+    
             df = df[cols].round(2)  # 전체 데이터 출력
             df = df.iloc[::-1]       # 최근 데이터가 위로 오도록 역순 정렬
 
@@ -894,20 +916,7 @@ def server(input, output, session):
         alert_logs.set([])  # 또는 상태 변수 초기화
         anomaly_detail_logs.set([])
     
-    @output
-    @render.ui
-    def log_alert_for_defect():
-        logs = alert_logs.get() or []  # logs가 None일 경우를 대비
     
-        # level별 필터링 (없어도 0으로 반환되도록)
-        mild_logs = [log for log in logs if log.get("level", "").strip() == "경도"]
-        severe_logs = [log for log in logs if log.get("level", "").strip() == "심각"]
-        count_badge = ui.div(
-            ui.HTML(f"<span style='margin-right:10px;'>🟠 <b>경도</b>: {len(mild_logs)}</span> | "
-                    f"<span style='margin-left:10px;'>🔴 <b>심각</b>: {len(severe_logs)}</span>"),
-            class_="fw-bold mb-2"
-        )
-        return ui.div(count_badge, class_="log-container")
     # ================================
     # TAB 2 [C] 단위 시간 당 불량 관리도
     # ================================
@@ -1094,29 +1103,31 @@ def server(input, output, session):
     # ================================
     # TAB 2 - [D] 
     # ================================
-    @reactive.effect
-    @reactive.event(current_data)
-    def update_anomaly_details():
-        df = current_data.get()
-        if df.empty:
-            return
+    # @reactive.effect
+    # @reactive.event(current_data)
+    # def update_anomaly_details():
+    #     df = current_data.get()
+    #     if df.empty:
+    #         return
 
-        latest = df.iloc[-1]
-        level = latest.get("anomaly_level", "정상")
+    #     latest = df.iloc[-1]
+    #     level = latest.get("anomaly_level", "정상")
 
-        if level not in ["경도", "심각"]:
-            return
+    #     if level not in ["경도", "심각"]:
+    #         return
 
-        logs = anomaly_detail_logs.get() or []
+    #     logs = anomaly_detail_logs.get() or []
 
-        # 전체 컬럼 값 저장 (dict로 변환)
-        row_data = latest.to_dict()
-        row_data["level"] = level
-        row_data["time"] = pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S")
+    #     # 전체 컬럼 값 저장 (dict로 변환)
+    #     row_data = latest.to_dict()
+    #     row_data["level"] = level
+    #     row_data["time"] = pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S")
 
-        logs.append(row_data)
-        anomaly_detail_logs.set(logs)
+    #     logs.append(row_data)
+    #     anomaly_detail_logs.set(logs)
         
+    
+
     
     # @output
     # @render.ui
@@ -1198,14 +1209,83 @@ def server(input, output, session):
     #     except Exception as e:
     #         return ui.div(f"❌ 로그 렌더링 오류: {str(e)}", class_="text-danger")
 
+    
+
 
     # @reactive.effect
     # @reactive.event(input.clear_alerts2)
     # def clear_alert_logs():
     #     alert_logs.set([])               # 기존 경고/심각 로그 초기화
     #     anomaly_detail_logs.set([])      # ✅ SHAP 상세 로그도 함께 초기화
+
+    
+    # @output
+    # @render.ui
+    # def log_alert_for_defect():
+    #     logs = alert_logs.get() or []  # logs가 None일 경우를 대비
+    
+    #     # level별 필터링 (없어도 0으로 반환되도록)
+    #     mild_logs = [log for log in logs if log.get("level", "").strip() == "경도"]
+    #     severe_logs = [log for log in logs if log.get("level", "").strip() == "심각"]
+    #     count_badge = ui.div(
+    #         ui.HTML(f"<span style='margin-right:10px;'>🟠 <b>경도</b>: {len(mild_logs)}</span> | "
+    #                 f"<span style='margin-left:10px;'>🔴 <b>심각</b>: {len(severe_logs)}</span>"),
+    #         class_="fw-bold mb-2"
+    #     )
+    #     return ui.div(count_badge, class_="log-container")
+
     
     
+    @reactive.effect
+    @reactive.event(current_data)
+    def update_anomaly_details():
+        df = current_data.get()
+        if df.empty:
+            return
+
+        latest = df.iloc[-1]
+        level = latest.get("anomaly_level", "정상")
+
+        if level not in ["경도", "심각"]:
+            return
+
+        logs = anomaly_detail_logs.get() or []
+
+        # 전체 컬럼 값 저장 (dict로 변환)
+        row_data = latest.to_dict()
+        row_data["level"] = level
+        row_data["time"] = pd.to_datetime(latest["registration_time"]).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 고유 ID 추가 (현재 시간 + 로그 개수 기반)
+        import time
+        row_data["log_id"] = f"log_{int(time.time())}_{len(logs)}"
+
+        logs.append(row_data)
+        anomaly_detail_logs.set(logs)
+
+    # 개별 삭제를 위한 reactive Value
+    selected_for_deletion = reactive.Value("")
+
+    # 삭제 버튼 클릭 처리
+    @reactive.effect
+    def handle_deletion():
+        delete_id = selected_for_deletion.get()
+        if delete_id:
+            logs = anomaly_detail_logs.get() or []
+            print(f"삭제 대상 ID: {delete_id}")
+            print(f"현재 로그 ID들: {[log.get('log_id', 'NO_ID') for log in logs]}")
+            
+            updated_logs = [log for log in logs if log.get("log_id") != delete_id]
+            print(f"삭제 시도: {delete_id}, 기존 로그 수: {len(logs)}, 삭제 후: {len(updated_logs)}")
+            
+            if len(updated_logs) == len(logs):
+                print(f"⚠️ 삭제 실패: ID '{delete_id}'를 가진 로그를 찾을 수 없음")
+            else:
+                print(f"✅ 삭제 성공: {len(logs) - len(updated_logs)}개 로그 삭제됨")
+            
+            anomaly_detail_logs.set(updated_logs)
+            selected_for_deletion.set("")  # 리셋
+
     @output
     @render.ui
     def anomaly_detail_table():
@@ -1215,7 +1295,19 @@ def server(input, output, session):
                 return ui.div("⚠️ 이상치 상세 로그 없음", class_="text-muted")
 
             rows = []
-            for idx, row in enumerate(reversed(logs)):
+
+            # 원본 로그 순서 유지하면서 역순으로 표시
+            reversed_logs = list(reversed(logs))
+            for idx, row in enumerate(reversed_logs):
+                log_id = row.get("log_id")
+                if not log_id:
+                    # fallback ID를 실제 로그에 할당
+                    log_id = f"log_default_{len(logs) - idx - 1}"
+                    row["log_id"] = log_id
+                    # 원본 로그 업데이트
+                    original_idx = len(logs) - idx - 1
+                    logs[original_idx]["log_id"] = log_id
+                    anomaly_detail_logs.set(logs)
                 level_value = row.get("anomaly_level", "없음")
                 reg_time_raw = row.get("registration_time", "")
                 try:
@@ -1233,9 +1325,10 @@ def server(input, output, session):
                     except:
                         val = "-"
 
+                    # ▶️ IQR 상/하한 가져오기
                     try:
                         bounds_row = spec_df_all[
-                            (spec_df_all["mold_code"] == int(mold_code)) &
+                            (spec_df_all["mold_code"] == int(mold_code)) & 
                             (spec_df_all["variable"] == var)
                         ]
                         lower = bounds_row["lower"].values[0]
@@ -1268,43 +1361,69 @@ def server(input, output, session):
                     ])
                 )
 
+                # JavaScript를 사용한 삭제 버튼
+                delete_js = f"""
+                <button class="btn btn-sm btn-outline-danger" 
+                        style="padding: 2px 8px; font-size: 12px; line-height: 1;" 
+                        onclick="Shiny.setInputValue('delete_clicked', '{log_id}', {{priority: 'event'}});">
+                    ✕
+                </button>
+                """
+
+                # 헤더와 삭제 버튼이 포함된 div
+                header_div = ui.div(
+                    ui.div(
+                        ui.HTML(f"{level_color} <b>{level_value}</b> | 🕒 {time_value} | mold_code: <b>{mold_code}</b>"),
+                        style="flex: 1;"
+                    ),
+                    ui.HTML(delete_js),
+                    style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;"
+                )
+
                 rows.append(
                     ui.div(
-                        ui.HTML(
-                            f"{level_color} <b>{level_value}</b> | 🕒 {time_value} | mold_code: <b>{mold_code}</b>"
-                        ),
+                        header_div,
                         table_html,
-                        ui.input_action_button(f"delete_alert_{idx}", "삭제", class_="btn btn-outline-danger btn-sm"),
                         class_="border rounded p-2 mb-3",
-                        style=f"background-color: {bg_color};"
+                        style=f"background-color: {bg_color}; position: relative;"
                     )
                 )
 
             return ui.div(*rows, class_="log-container", style="max-height: 450px; overflow-y: auto;")
+
         except Exception as e:
             return ui.div(f"❌ 로그 렌더링 오류: {str(e)}", class_="text-danger")
 
-    
+    # JavaScript 삭제 이벤트 처리
     @reactive.effect
-    def delete_individual_alert():
-        logs = anomaly_detail_logs.get()
-        if not logs:
-            return
+    @reactive.event(input.delete_clicked)
+    def handle_js_delete():
+        delete_id = input.delete_clicked()
+        if delete_id:
+            print(f"JavaScript에서 삭제 요청: {delete_id}")  # 디버깅
+            selected_for_deletion.set(delete_id)
 
-        updated_logs = logs[:]
-        updated_alerts = alert_logs.get()[:]
-        total = len(logs)
+    @reactive.effect
+    @reactive.event(input.clear_alerts2)
+    def clear_alert_logs():
+        alert_logs.set([])               # 기존 경고/심각 로그 초기화
+        anomaly_detail_logs.set([])      # ✅ SHAP 상세 로그도 함께 초기화
+        selected_for_deletion.set("")    # 삭제 선택 상태 초기화
 
-        for i in range(total):
-            btn_id = f"delete_alert_{i}"
-            if input[btn_id]() > 0:
-                # reversed(logs)의 i번째 항목은 logs의 (total - 1 - i)번째
-                true_idx = total - 1 - i
-                del updated_logs[true_idx]
-                del updated_alerts[true_idx]
-                anomaly_detail_logs.set(updated_logs)
-                alert_logs.set(updated_alerts)
-                break  # 한 번에 하나만 삭제
+    @output
+    @render.ui
+    def log_alert_for_defect():
+        logs = anomaly_detail_logs.get() or []  # anomaly_detail_logs를 참조하도록 수정
+
+        # level별 필터링 (anomaly_level 또는 level 필드 확인)
+        mild_logs = [log for log in logs if log.get("anomaly_level", log.get("level", "")).strip() == "경도"]
+        severe_logs = [log for log in logs if log.get("anomaly_level", log.get("level", "")).strip() == "심각"]
+        count_badge = ui.div(
+            ui.HTML(f"<span style='margin-right:10px;'>🟠 <b>경도</b>: {len(mild_logs)}</span> | "
+                    f"<span style='margin-left:10px;'>🔴 <b>심각</b>: {len(severe_logs)}</span>"),
+            class_="fw-bold mb-2"
+        )
+        return ui.div(count_badge, class_="log-container")
 
     # ================================
     # TAB 3 - [A] : 품질 분석
@@ -1862,7 +1981,7 @@ def server(input, output, session):
                                         ui.card_header("이상 탐지 알림"),
                                         ui.output_ui("log_alert_for_defect"),
                                         ui.output_ui("anomaly_detail_table"),
-                                        # ui.input_action_button("clear_alerts", "✅ 알림 확인", class_="btn btn-sm btn-secondary")
+                                        ui.input_action_button("clear_alerts", "✅ 알림 확인", class_="btn btn-sm btn-secondary")
                                     ),
                                     # TAB 2 [B] 이상 탐지 알림
                                     
