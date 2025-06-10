@@ -147,6 +147,8 @@ def server(input, output, session):
     
     alert_logs = reactive.Value([])  # 실시간 경고 누적
     anomaly_counter = reactive.Value(Counter())
+
+    log_button_clicks = reactive.Value({})
     # ================================
     # 스트리밍 제어
     # ================================
@@ -1516,10 +1518,18 @@ def server(input, output, session):
     
     @reactive.Effect
     def handle_log_click():
-        for i, log in enumerate(reversed(prediction_table_logs.get())):
-            if input[f"log_{i}"]() > 0:
-                # 시간값을 기준으로 고유하게 선택하도록 설정
+        logs = list(reversed(prediction_table_logs.get()))
+        prev_clicks = log_button_clicks.get()
+
+        for i, log in enumerate(logs):
+            btn_id = f"log_{i}"
+            current_click = input[btn_id]()
+
+            if prev_clicks.get(btn_id, -1) != current_click:
                 selected_log_time.set(log["판정 시간"])
+                prev_clicks[btn_id] = current_click  # 클릭 수 갱신
+
+        log_button_clicks.set(prev_clicks)
     @output
     @render.plot
     def shap_explanation_plot():
