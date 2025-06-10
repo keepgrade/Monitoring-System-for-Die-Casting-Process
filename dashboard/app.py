@@ -80,11 +80,22 @@ plt.rcParams['font.family'] = 'Malgun Gothic'  # 윈도우
 mpl.rcParams['axes.unicode_minus'] = False  # 마이너스 부호 깨짐 방지
 
 selected_cols = [
-    'molten_temp',           # 용탕 온도
+    'mold_code',
+    'registration_time',
     'cast_pressure',         # 주조 압력
-    'high_section_speed',    # 고속 구간 속도
     'low_section_speed',     # 저속 구간 속도
-    'biscuit_thickness'      # 비스킷 두께
+    'biscuit_thickness',      # 비스킷 두께
+    'molten_temp',           # 용탕 온도
+    'high_section_speed',    # 고속 구간 속도
+    'physical_strength',
+    'facility_operation_cycleTime',
+    'production_cycletime',
+    'count',
+    'Coolant_temperature',
+    'sleeve_temperature',
+    'molten_volume',
+    'upper_mold_temp1',
+    'EMS_operation_time',
 ]
 df_selected = streaming_df[selected_cols].reset_index(drop=True)
 
@@ -406,10 +417,11 @@ def server(input, output, session):
                     df = df[df["registration_time"] >= t_latest - pd.Timedelta(minutes=30)]
                     df = df.tail(30)
 
-                    # cols_to_plot = [col for col in selected_cols if col in df.columns][:3]
-                    cols_to_plot = [col for col in sensor_labels.keys() if col in df.columns][:3]
+                    # ✅ 사용자가 선택한 변수
+                    selected_cols = input.selected_sensor_cols()
+                    cols_to_plot = [col for col in selected_cols if col in df.columns]
                     if not cols_to_plot:
-                        raise ValueError("시각화할 센서 컬럼이 없습니다.")
+                        raise ValueError("선택된 센서 컬럼이 없습니다.")
 
                     colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
                     fig, axs = plt.subplots(nrows=len(cols_to_plot), figsize=(10, 3.5 * len(cols_to_plot)), sharex=True)
@@ -426,7 +438,7 @@ def server(input, output, session):
                         
 
                         # ✅ 상한/하한선 표시 (단, code != "ALL"일 때만)
-                        if code != "ALL" and int(code) not in [8573, 8600]:
+                        if code != "ALL":
                             spec_row = spec_df_all[
                                 (spec_df_all["mold_code"] == int(code)) & (spec_df_all["variable"] == col)
                             ]
@@ -436,7 +448,8 @@ def server(input, output, session):
                                 ax.axhline(y=upper, color="red", linestyle="--", linewidth=1.2, label="상한")
                                 ax.axhline(y=lower, color="blue", linestyle="--", linewidth=1.2, label="하한")
 
-                        ax.legend(loc="upper left", prop=font_prop)
+                        ax.set_ylabel(col)
+                        ax.legend(loc="upper left")
                         ax.grid(True)
 
                     axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S')) 
@@ -459,7 +472,7 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("📭 데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
+                return ui.div("데이터 없음", class_="text-muted")
 
             latest = df.iloc[-1]
             latest = pd.DataFrame([latest])  # 단일 행을 DataFrame으로 변환
@@ -538,32 +551,43 @@ def server(input, output, session):
         try:
             df = current_data.get()
             if df.empty:
-                return ui.div("📭 데이터가 없습니다. 작업을 시작해주세요.", class_="text-muted")
+                return ui.div("데이터 없음", class_="text-muted")
 
-            latest = df.iloc[-1] if len(df) > 0 else None
+            latest = df.iloc[-1]
             prev = df.iloc[-2] if len(df) > 1 else latest
 
-            # ✅ 그래프 색상과 매칭
             sensor_colors = {
-                'molten_temp': '#1f77b4',
-                'cast_pressure': '#ff7f0e',
-                'upper_mold_temp1': '#2ca02c'
-                # 추가 센서 색상도 여기에
+                "cast_pressure": "#ff7f0e",                 # 주조 압력
+                "low_section_speed": "#d62728",             # 저속 구간 속도
+                "biscuit_thickness": "#9467bd",             # 비스킷 두께
+                "molten_temp": "#1f77b4",                   # 용탕 온도
+                "high_section_speed": "#8c564b",            # 고속 구간 속도
+                "physical_strength": "#e377c2",             # 물리적 강도
+                "facility_operation_cycleTime": "#7f7f7f",  # 설비 작동 사이클
+                "production_cycletime": "#bcbd22",          # 생산 사이클 타임
+                "Coolant_temperature": "#17becf",           # 냉각수 온도
+                "sleeve_temperature": "#aec7e8",            # 슬리브 온도
+                "molten_volume": "#ffbb78",                 # 용탕 체적
+                "EMS_operation_time": "#98df8a"             # EMS 작동 시간
             }
             sensor_korean_labels = {
-            'molten_temp': '용탕 온도 (℃)',
-            'cast_pressure': '주조 압력 (bar)',
-            'upper_mold_temp1': '상부 금형 온도1 (℃)',
-            'lower_mold_temp1': '하부 금형 온도1 (℃)',
-            'high_section_speed': '고속 구간 속도 (mm/s)',
-            'low_section_speed': '저속 구간 속도 (mm/s)',
-            'biscuit_thickness': '비스킷 두께 (mm)',
-            # 필요시 계속 추가 가능
+                "cast_pressure": ("주조 압력", "bar"),
+                "low_section_speed": ("저속 구간 속도", "mm/s"),
+                "biscuit_thickness": ("비스킷 두께", "mm"),
+                "molten_temp": ("용탕 온도", "℃"),
+                "high_section_speed": ("고속 구간 속도", "mm/s"),
+                "physical_strength": ("물리적 강도", "MPa"),
+                "facility_operation_cycleTime": ("설비 작동 사이클", "sec"),
+                "production_cycletime": ("생산 사이클 타임", "sec"),
+                "Coolant_temperature": ("냉각수 온도", "℃"),
+                "sleeve_temperature": ("슬리브 온도", "℃"),
+                "molten_volume": ("용탕 체적", "cc"),
+                "EMS_operation_time": ("EMS 작동 시간", "sec"),
             }
 
             cards = []
 
-            # ✅ [추가] mold_code 카드 삽입
+            # ✅ mold_code 카드
             if 'mold_code' in df.columns:
                 mold_code_val = latest['mold_code']
                 cards.append(
@@ -573,31 +597,23 @@ def server(input, output, session):
                         class_="card p-3 mb-2 border border-info"
                     )
                 )
-            
-            for col in sensor_labels:
+
+            # ✅ 사용자가 선택한 변수만 표시
+            selected_cols = input.selected_sensor_cols()
+
+            for col in selected_cols:
                 if col in df.columns:
                     current_val = latest[col]
-                    prev_val = prev[col] if prev is not None else current_val
+                    prev_val = prev[col]
                     diff = current_val - prev_val
                     percent_change = (diff / prev_val * 100) if prev_val != 0 else 0
 
-                    # 증감 화살표 및 색상
-                    if diff > 0:
-                        arrow = "⬆️"
-                        color_class = "text-muted"
-                    elif diff < 0:
-                        arrow = "⬇️"
-                        color_class = "text-muted"
-                    else:
-                        arrow = "➡️"
-                        color_class = "text-muted"
+                    arrow = "⬆️" if diff > 0 else "⬇️" if diff < 0 else "➡️"
+                    color_class = "text-muted"
 
-                    # ================================
-                    # 경고 테두리 적용 (스펙 범위 벗어났을 때)
-                    # ================================
                     warning_class = ""
                     try:
-                        mold_code_val = int(latest['mold_code'])  # mold_code가 문자열일 경우 int 변환 시도
+                        mold_code_val = int(latest['mold_code'])
                         spec_row = spec_df_all[
                             (spec_df_all["mold_code"] == mold_code_val) &
                             (spec_df_all["variable"] == col)
@@ -605,27 +621,21 @@ def server(input, output, session):
                         if not spec_row.empty:
                             lower_bound = spec_row["lower"].values[0]
                             upper_bound = spec_row["upper"].values[0]
-
                             if current_val < lower_bound or current_val > upper_bound:
                                 warning_class = "border border-danger"
                     except Exception as e:
-                        print(f"[경고 테두리 판단 오류] {col}: {e}")
-                        # 오류 발생 시 경고 미적용하고 통과
+                        print(f"[스펙 확인 오류] {col}: {e}")
 
-                    # 색상 적용
                     custom_color = sensor_colors.get(col, "#000000")
-
                     cards.append(
                         ui.div(
-                            ui.h6(col.replace('_', ' ').title()),
+                            ui.h6(sensor_korean_labels.get(col, col)),
                             ui.h4(
                                 f"{current_val:.1f}",
-                                # {arrow} ({diff:+.1f}, {percent_change:+.1f}%)
                                 class_=color_class,
                                 style=f"color: {custom_color}; font-weight: bold;"
                             ),
                             class_=f"card p-3 mb-2 {warning_class}"
-                    
                         )
                     )
 
@@ -753,51 +763,49 @@ def server(input, output, session):
     @render.plot
     def anomaly_variable_count():
         try:
-            df = current_data.get()
-            if df.empty:
+            logs = anomaly_detail_logs.get()
+            if not logs:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "데이터 없음", ha='center', va='center',fontproperties=font_prop)
+                ax.text(0.5, 0.5, "이상 변수 없음", ha='center', va='center', fontproperties=font_prop)
                 return fig
 
-            # ✅ 최신 데이터 한 줄
-            latest = df.iloc[-1]
+            # ✅ 카운터 초기화 후 새로 집계
+            top_vars = []
+            for row in logs:
+                for key in ["top1", "top2", "top3"]:
+                    var = row.get(key)
+                    if pd.notna(var) and var != "":
+                        top_vars.append(var)
 
-            # top1, top2, top3 변수명 추출
-            top_vars = [latest.get('top1'), latest.get('top2'), latest.get('top3')]
-            top_vars = [v for v in top_vars if pd.notna(v)]
-
-            # 누적 카운터 업데이트
-            counts = anomaly_counter.get()
-            counts.update(top_vars)
-            anomaly_counter.set(counts)
-
+            counts = Counter(top_vars)  # ← 이전 누적값 없이 새로 계산
+            anomaly_counter.set(counts)  # 여전히 공유 저장소에는 저장함
 
             if not counts:
                 fig, ax = plt.subplots()
-                ax.text(0.5, 0.5, "이상 변수 없음", ha='center', va='center',fontproperties=font_prop)
+                ax.text(0.5, 0.5, "이상 변수 없음", ha='center', va='center', fontproperties=font_prop)
                 return fig
 
-            # 전체 변수에 대해 정렬된 리스트 생성
+            # ✅ 정렬 후 시각화
             sorted_items = counts.most_common()
             vars_, values = zip(*sorted_items)
 
-            fig, ax = plt.subplots(figsize=(10, max(4, len(vars_) * 0.4)))  # 변수 수에 따라 높이 자동 조정
+            fig, ax = plt.subplots(figsize=(10, max(4, len(vars_) * 0.4)))
             bars = ax.barh(vars_, values)
-            ax.set_title("실시간 이상 변수 누적 카운트 (전체)",fontproperties=font_prop)
-            ax.set_xlabel("횟수",fontproperties=font_prop)
-            ax.set_ylabel("변수명",fontproperties=font_prop)
+            ax.set_title("실시간 이상 변수 누적 카운트 (전체)", fontproperties=font_prop)
+            ax.set_xlabel("횟수", fontproperties=font_prop)
+            ax.set_ylabel("변수명", fontproperties=font_prop)
 
             for bar in bars:
                 width = bar.get_width()
-                ax.text(width + 0.2, bar.get_y() + bar.get_height()/2,
-                        f'{int(width)}', va='center',fontproperties=font_prop)
+                ax.text(width + 0.3, bar.get_y() + bar.get_height() / 2,
+                        f'{int(width)}', va='center', fontproperties=font_prop)
 
             plt.tight_layout()
             return fig
 
         except Exception as e:
             fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, f"오류: {str(e)}", ha='center', va='center',fontproperties=font_prop)
+            ax.text(0.5, 0.5, f"오류: {str(e)}", ha='center', va='center', fontproperties=font_prop)
             return fig
 
     # ================================
@@ -1005,8 +1013,7 @@ def server(input, output, session):
             ax.grid(True, alpha=0.3)
             ax.legend(loc="upper right")
             fig.tight_layout(pad=2)
-            fig.subplots_adjust(left=0.12,bottom=0.1)  # ✅ 왼쪽 여백 확보
-            ax.margins(x=0)
+            fig.subplots_adjust(left=0.05,bottom=0.1)  # ✅ 왼쪽 여백 확보
             
             return fig
 
@@ -1110,8 +1117,7 @@ def server(input, output, session):
 
             rows = []
 
-            for i, row in enumerate(reversed(logs), 1):
-                # ✅ anomaly_level과 time 안전하게 가져오기
+            for row in reversed(logs):
                 level_value = row.get("anomaly_level", "없음")
                 reg_time_raw = row.get("registration_time", "")
                 try:
@@ -1119,32 +1125,67 @@ def server(input, output, session):
                 except:
                     time_value = str(reg_time_raw)
 
-                # ✅ 표시 제외 컬럼 정의
-                exclude_keys = {"anomaly_level", "time", "registration_time"}
+                mold_code = row.get("mold_code", "미입력")
 
-                details = [
-                    f"<b>{k}</b>: {v}" for k, v in row.items()
-                    if k not in exclude_keys
-                ]
+                top_features = []
+                for i in range(1, 4):
+                    var = row.get(f"top{i}", "-")
+                    try:
+                        val = float(row.get(var, "-")) if var != "-" else "-"
+                    except:
+                        val = "-"
+
+                    # ▶️ IQR 상/하한 가져오기
+                    try:
+                        bounds_row = spec_df_all[
+                            (spec_df_all["mold_code"] == int(mold_code)) & 
+                            (spec_df_all["variable"] == var)
+                        ]
+                        lower = bounds_row["lower"].values[0]
+                        upper = bounds_row["upper"].values[0]
+                    except:
+                        lower = "-"
+                        upper = "-"
+
+                    top_features.append((f"TOP {i}", var, val, lower, upper))
 
                 level_color = "🔴" if level_value == "심각" else ("🟠" if level_value == "경도" else "✅")
                 bg_color = "#fff5f5" if level_value == "심각" else ("#fffdf5" if level_value == "경도" else "#f5fff5")
 
+                table_html = ui.tags.table(
+                    {"class": "table table-bordered table-sm mb-1"},
+                    ui.tags.thead(
+                        ui.tags.tr(
+                            ui.tags.th("순위"), ui.tags.th("변수명"),
+                            ui.tags.th("수치"), ui.tags.th("하한"), ui.tags.th("상한")
+                        )
+                    ),
+                    ui.tags.tbody(*[
+                        ui.tags.tr(
+                            ui.tags.td(rank),
+                            ui.tags.td(var),
+                            ui.tags.td(f"{val:.1f}" if isinstance(val, float) else val),
+                            ui.tags.td(f"{lower:.1f}" if isinstance(lower, float) else lower),
+                            ui.tags.td(f"{upper:.1f}" if isinstance(upper, float) else upper),
+                        ) for rank, var, val, lower, upper in top_features
+                    ])
+                )
+
                 rows.append(
                     ui.div(
                         ui.HTML(
-                            f"{level_color} <b>{level_value}</b> | 🕒 {time_value}<br>" + "<br>".join(details)
+                            f"{level_color} <b>{level_value}</b> | 🕒 {time_value} | mold_code: <b>{mold_code}</b><br>"
                         ),
-                        class_="border rounded p-2 mb-2",
+                        table_html,
+                        class_="border rounded p-2 mb-3",
                         style=f"background-color: {bg_color};"
                     )
                 )
 
             return ui.div(*rows, class_="log-container", style="max-height: 450px; overflow-y: auto;")
-        
+
         except Exception as e:
             return ui.div(f"❌ 로그 렌더링 오류: {str(e)}", class_="text-danger")
-
 
 
     @reactive.effect
@@ -1263,11 +1304,10 @@ def server(input, output, session):
             ax.set_ylabel('개수',fontproperties=font_prop)
             ax.set_title(f"{start_date} ~ {end_date} 몰드코드별 누적 예측 결과",fontproperties=font_prop)
             ax.set_xticks(x)
-            ax.set_xticklabels(mold_codes, rotation=0, ha='right')
+            ax.set_xticklabels(mold_codes, rotation=45, ha='right')
             ax.legend()
 
             fig.tight_layout()
-            fig.subplots_adjust(bottom=0.25)
             return fig
 
         except Exception as e:
@@ -1437,9 +1477,7 @@ def server(input, output, session):
             ax.plot(labels, ucl, linestyle='--', label="UCL", color='red')
             ax.plot(labels, lcl, linestyle='--', label="LCL", color='red')
             ax.fill_between(labels, lcl, ucl, color='red', alpha=0.1)
-            # 라벨 간격 조절
-            ax.set_xticks(ax.get_xticks()[::3])  # 라벨을 2개 중 1개만 표시 (필요 시 숫자 조절)
-            ax.margins(x=0)
+
 
             ax.set_title(f"관리도 기반 불량률 분석 ({unit}) - 최근 20개",fontproperties=font_prop)
             ax.set_xlabel("시간 단위",fontproperties=font_prop)
@@ -1463,9 +1501,8 @@ def server(input, output, session):
             ax.set_ylim(y_min, y_max)
             ax.legend()
             ax.grid(True, alpha=0.3)
-            plt.xticks(rotation=0)
+            plt.xticks(rotation=45)
             plt.tight_layout()
-            fig.subplots_adjust(left=0.08, bottom=0.15)
             return fig
 
         except Exception as e:
@@ -1652,6 +1689,13 @@ def server(input, output, session):
                                         ui.div(
                                             # 왼쪽: 탭 그래프
                                             ui.div(
+                                                ui.input_checkbox_group(
+                                                    id="selected_sensor_cols",
+                                                    label="시각화할 센서 선택",
+                                                    choices=list(sensor_labels.keys()),  # ✅ 튜플 대신 문자열 리스트
+                                                    selected=[list(sensor_labels.keys())[0]],  # ✅ 기본 선택도 문자열 리스트
+                                                    inline=True
+                                                ),
                                                 ui.navset_tab(
                                                     *[
                                                         ui.nav_panel(

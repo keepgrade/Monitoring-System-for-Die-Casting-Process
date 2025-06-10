@@ -47,10 +47,21 @@ spec_df_all.columns = ["mold_code", "variable", "lower", "upper"]
 #     # 필요 시 더 추가
 # }
 sensor_labels = {
-    "cast_pressure": ("주조압력", "bar"),
-    "low_section_speed": ("저속구간속도", "mm/s"),
-    "biscuit_thickness": ("비스킷두께", "mm")
+    "cast_pressure": ("주조 압력", "bar"),
+    "low_section_speed": ("저속 구간 속도", "mm/s"),
+    "biscuit_thickness": ("비스킷 두께", "mm"),
+    "molten_temp": ("용탕 온도", "℃"),
+    "high_section_speed": ("고속 구간 속도", "mm/s"),
+    "physical_strength": ("물리적 강도", "MPa"),
+    "facility_operation_cycleTime": ("설비 작동 사이클", "sec"),
+    "production_cycletime": ("생산 사이클 타임", "sec"),
+    "Coolant_temperature": ("냉각수 온도", "℃"),
+    "sleeve_temperature": ("슬리브 온도", "℃"),
+    "molten_volume": ("용탕 체적", "cc"),
+    "EMS_operation_time": ("EMS 작동 시간", "sec"),
+    
 }
+
 # 사용할 센서 컬럼 선택
 selected_cols = [
     'mold_code',
@@ -82,8 +93,8 @@ selected_cols = [
     'EMS_operation_time',
     'lower_mold_temp1', 
     'working'
-
 ]
+
 df_selected = streaming_df[selected_cols].reset_index(drop=True)
 
 # ================================
