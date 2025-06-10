@@ -41,7 +41,7 @@ for mold in common_molds:
     X_train = df_train_copy.loc[idx_train, num_cols].fillna(df_train_copy.loc[idx_train, num_cols].mean())
     X_test = df_test_copy.loc[idx_test, num_cols].fillna(df_test_copy.loc[idx_test, num_cols].mean())
 
-    model = IsolationForest(contamination=0.05, random_state=42)
+    model = IsolationForest(contamination=0.1, random_state=42)
     model.fit(X_train)
     pred_train = model.predict(X_train)
     score_train = model.decision_function(X_train)
@@ -57,8 +57,8 @@ for mold in common_molds:
 # 7. anomaly_level 분류 함수 (NaN은 '새제품')
 def assign_anomaly_level(df):
     score = df['anomaly_score']
-    cut_2 = np.nanpercentile(score, 2)
-    cut_5 = np.nanpercentile(score, 5)
+    cut_2 = np.nanpercentile(score, 3)
+    cut_5 = np.nanpercentile(score, 7)
     print(f"✅ 2% 기준 (심각): {cut_2:.5f}")
     print(f"✅ 5% 기준 (경도): {cut_5:.5f}")
     cond_serious = score <= cut_2
@@ -83,7 +83,7 @@ for mold in common_molds:
     X_train = df_train_copy.loc[idx_train, num_cols].fillna(df_train_copy.loc[idx_train, num_cols].mean())
     X_test = df_test_copy.loc[idx_test, num_cols].fillna(df_test_copy.loc[idx_test, num_cols].mean())
 
-    model = IsolationForest(contamination=0.05, random_state=42)
+    model = IsolationForest(contamination=0.1, random_state=42)
     model.fit(X_train)
     pred_test = model.predict(X_test)
     score_test = model.decision_function(X_test)
