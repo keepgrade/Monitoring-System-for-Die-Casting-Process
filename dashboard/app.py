@@ -27,7 +27,7 @@ from collections import Counter
 from pathlib import Path
 import matplotlib.font_manager as fm
 from sklearn.pipeline import Pipeline
-
+import matplotlib.ticker as mticker
 # 📍 server 구성 위쪽 (전역)
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "www")
 selected_log_index = reactive.Value(None)
@@ -1054,15 +1054,15 @@ def server(input, output, session):
                 return ui.div("데이터 없습니다.작업을 시작해주세요.", class_="text-muted")
 
             # ✅ Confusion 영역별 필터링
-            total = len(df)
 
+            # total = len(df)
             count_a_f = len(df[(df["is_anomaly"] == -1) & (df["passorfail"] == 1)])  # 이상 + 불량
             count_a_p = len(df[(df["is_anomaly"] == -1) & (df["passorfail"] == 0)])  # 이상 + 정상
             count_n_f = len(df[(df["is_anomaly"] == 1) & (df["passorfail"] == 1)])  # 정상 + 불량
             count_n_p = len(df[(df["is_anomaly"] == 1) & (df["passorfail"] == 0)])  # 정상 + 정상
-
+            total = count_a_f + count_a_p + count_n_f + count_n_p
             # ✅ 비율 계산
-            def ratio(n): return f"{n}건 ({n/total:.2%})" if total > 0 else "0건 (0%)"
+            def ratio(n): return f"{n:,}건 ({n/total:.2%})" if total > 0 else "0건 (0%)"
 
             return ui.div(
                 [
@@ -1522,6 +1522,7 @@ def server(input, output, session):
 
             ax.set_xlabel('몰드 코드',fontproperties=font_prop)
             ax.set_ylabel('개수',fontproperties=font_prop)
+            ax.yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}'))
             ax.set_title(f"{start_date} ~ {end_date} 몰드코드별 누적 예측 결과",fontproperties=font_prop)
             ax.set_xticks(x)
             ax.set_xticklabels(mold_codes, rotation=0, ha='right')
